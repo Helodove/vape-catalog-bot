@@ -52,15 +52,16 @@ async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     stock_url = f"{BASE_URL}/report/stock/all?filter=productFolder={folder_href}&limit=1"
     async with httpx.AsyncClient(timeout=15) as http:
         sr = await http.get(stock_url, headers={"Authorization": f"Bearer {settings.moysklad_token}"})
-    stock_href = ""
-    stock_val = None
     if sr.status_code == 200:
         srows = sr.json().get("rows", [])
         if srows:
-            stock_href = srows[0].get("assortment", {}).get("meta", {}).get("href", "")
-            stock_val = srows[0].get("stock")
-    await update.message.reply_text(
-        f"📊 Stock href:\n<code>{stock_href}</code>\n\nstock={stock_val}\n\n"
-        f"{'✅ href совпадают' if product_href and product_href == stock_href else '❌ href НЕ совпадают'}",
-        parse_mode="HTML",
-    )
+            import json
+            raw = json.dumps(srows[0], ensure_ascii=False, indent=2)
+            await update.message.reply_text(
+                f"📊 Raw stock row:\n<pre>{raw[:1200]}</pre>",
+                parse_mode="HTML",
+            )
+        else:
+            await update.message.reply_text("⚠️ Stock report вернул 0 строк")
+    else:
+        await update.message.reply_text(f"❌ Stock report HTTP {sr.status_code}: {sr.text[:300]}")
