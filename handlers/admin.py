@@ -1,3 +1,4 @@
+import httpx
 from telegram import Update
 from telegram.ext import ContextTypes
 from moysklad.cache import cache
@@ -28,26 +29,26 @@ async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     names = "\n".join(f"• {f.name} (id: {f.id})" for f in folders[:5])
     await update.message.reply_text(f"✅ Папок: {len(folders)}\n\n{names}")
 
-    # 2. Товары в первой папке напрямую
     first = folders[0]
     folder_href = f"{BASE_URL}/entity/productfolder/{first.id}"
-    await update.message.reply_text(f"🔄 Ищу товары в «{first.name}»...")
-    raw = await client._get("/entity/product", {"filter": f"productFolder={folder_href}", "limit": 5})
-    if raw is None:
-        await update.message.reply_text("❌ Ошибка запроса товаров.")
-        return
-    total = raw.get("meta", {}).get("size", "?")
-    rows = raw.get("rows", [])
-    if rows:
-        items = "\n".join(f"• {r.get('name', '?')}" for r in rows[:5])
-        await update.message.reply_text(f"✅ Товаров в «{first.name}»: {total}\n\n{items}")
-    else:
-        await update.message.reply_text(
-            f"⚠️ В папке «{first.name}» товаров нет (total={total}).\n\n"
-            f"Проверьте: в МойСклад товары привязаны к папкам?"
-        )
 
-    # 3. Все товары без фильтра
-    raw_all = await client._get("/entity/product", {"limit": 5})
-    total_all = raw_all.get("meta", {}).get("size", "?") if raw_all else "?"
-    await update.message.reply_text(f"ℹ️ Всего товаров в МойСклад (без фильтра): {total_all}")
+    # 2. Все товары без фильтра
+    raw_all = await client._get("/entity/product", {"limit": 3})
+    total_all = raw_all.get("meta", {}).get("size", "?") if raw_all else "❌ ошибка"
+    await update.message.reply_text(f"ℹ️ Всего товаров (без фильтра): {total_all}")
+
+    # 3. Прямой HTTP запрос с фильтром — показываем URL и ответ
+    test_url = f"{BASE_URL}/entity/product?filter=productFolder={folder_href}&limit=3"
+    await update.message.reply_text(f"🔄 Тестирую запрос:\n<code>{test_url}</code>", parse_mode="HTML")
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            resp = await http.get(
+                test_url,
+                headers={"Authorization": f"Bearer {settings.moysklad_token}"},
+            )
+        await update.message.reply_text(
+            f"HTTP {resp.status_code}\n\n<pre>{resp.text[:800]}</pre>",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Исключение: {e}")
