@@ -1,7 +1,9 @@
 import asyncio
 import os
 import logging
+import traceback
 from aiohttp import web
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -9,6 +11,7 @@ from telegram.ext import (
     ConversationHandler,
     MessageHandler,
     filters,
+    ContextTypes,
 )
 from config import settings
 from moysklad.client import MoySkladClient
@@ -27,13 +30,26 @@ from handlers.search import (
     slist_callback,
     WAITING_QUERY,
 )
-from handlers.admin import refresh_handler
+from handlers.admin import refresh_handler, debug_handler
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 log = logging.getLogger(__name__)
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    err = "".join(traceback.format_exception(type(context.error), context.error, context.error.__traceback__))
+    log.error("Unhandled exception:\n%s", err)
+    try:
+        await context.bot.send_message(
+            chat_id=settings.admin_chat_id,
+            text=f"⚠️ Ошибка бота:\n<pre>{err[-3000:]}</pre>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
 
 
 async def health_check(request: web.Request) -> web.Response:
@@ -72,6 +88,7 @@ async def main() -> None:
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(CommandHandler("catalog", catalog_handler))
     app.add_handler(CommandHandler("refresh", refresh_handler))
+    app.add_handler(CommandHandler("debug", debug_handler))
     app.add_handler(search_conv)
 
     app.add_handler(CallbackQueryHandler(home_callback, pattern="^home$"))
@@ -81,6 +98,8 @@ async def main() -> None:
     app.add_handler(CallbackQueryHandler(product_callback, pattern="^product:"))
     app.add_handler(CallbackQueryHandler(sproduct_callback, pattern="^sproduct:"))
     app.add_handler(CallbackQueryHandler(slist_callback, pattern="^slist:"))
+
+    app.add_error_handler(error_handler)
 
     await app.initialize()
     await app.start()
