@@ -133,7 +133,7 @@ class MoySkladClient:
 def _build_stock_map(stock_data: dict) -> dict:
     result = {}
     for row in stock_data.get("rows", []):
-        href = row.get("assortment", {}).get("meta", {}).get("href", "")
+        href = row.get("meta", {}).get("href", "").split("?")[0]
         if href:
             result[href] = row.get("stock", 0.0)
     return result
