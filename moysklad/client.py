@@ -66,10 +66,10 @@ class MoySkladClient:
         cached = cache.get(key)
         if cached is not None:
             return cached
-        data = await self._get("/entity/product", {"filter": f"productFolder={folder_href}", "limit": 100})
+        data = await self._get("/entity/assortment", {"filter": f"productFolder={folder_href}", "limit": 100})
         if data is None:
             return []
-        products = [_parse_product(r) for r in data.get("rows", [])]
+        products = [_parse_product(r) for r in data.get("rows", []) if r.get("meta", {}).get("type") == "product"]
         products = await self._enrich_stock(products)
         cache.set(key, products, TTL_PRODUCTS)
         return products

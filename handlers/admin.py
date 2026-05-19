@@ -37,17 +37,22 @@ async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     total_all = raw_all.get("meta", {}).get("size", "?") if raw_all else "❌ ошибка"
     await update.message.reply_text(f"ℹ️ Всего товаров (без фильтра): {total_all}")
 
-    # 3. Прямой HTTP запрос с фильтром — показываем URL и ответ
-    test_url = f"{BASE_URL}/entity/product?filter=productFolder={folder_href}&limit=3"
-    await update.message.reply_text(f"🔄 Тестирую запрос:\n<code>{test_url}</code>", parse_mode="HTML")
+    # 3. Тест через assortment (правильный эндпоинт для каталога)
+    test_url = f"{BASE_URL}/entity/assortment?filter=productFolder={folder_href}&limit=3"
+    await update.message.reply_text(f"🔄 Тестирую assortment:\n<code>{test_url}</code>", parse_mode="HTML")
     try:
         async with httpx.AsyncClient(timeout=15) as http:
             resp = await http.get(
                 test_url,
                 headers={"Authorization": f"Bearer {settings.moysklad_token}"},
             )
+        data = resp.json()
+        total = data.get("meta", {}).get("size", "?")
+        rows = data.get("rows", [])
+        names = "\n".join(f"• {r.get('name','?')}" for r in rows[:3])
         await update.message.reply_text(
-            f"HTTP {resp.status_code}\n\n<pre>{resp.text[:800]}</pre>",
+            f"HTTP {resp.status_code} | Найдено: {total}\n\n{names}" if resp.status_code == 200
+            else f"HTTP {resp.status_code}\n<pre>{resp.text[:600]}</pre>",
             parse_mode="HTML",
         )
     except Exception as e:
