@@ -4,6 +4,7 @@ import logging
 import traceback
 from aiohttp import web
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -40,6 +41,8 @@ log = logging.getLogger(__name__)
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if isinstance(context.error, BadRequest) and "not modified" in str(context.error).lower():
+        return
     err = "".join(traceback.format_exception(type(context.error), context.error, context.error.__traceback__))
     log.error("Unhandled exception:\n%s", err)
     try:
