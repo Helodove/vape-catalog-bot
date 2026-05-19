@@ -41,7 +41,10 @@ log = logging.getLogger(__name__)
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if isinstance(context.error, BadRequest) and "not modified" in str(context.error).lower():
+    err_str = str(context.error).lower()
+    if isinstance(context.error, BadRequest) and any(s in err_str for s in (
+        "not modified", "query is too old", "query id is invalid"
+    )):
         return
     if isinstance(context.error, Conflict):
         log.warning("Telegram Conflict error (duplicate instance), ignoring")
