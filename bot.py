@@ -1,4 +1,7 @@
+import asyncio
+import os
 import logging
+from aiohttp import web
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -33,7 +36,22 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-def main() -> None:
+async def health_check(request: web.Request) -> web.Response:
+    return web.Response(text="OK")
+
+
+async def run_web_server() -> None:
+    port = int(os.environ.get("PORT", 8080))
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    log.info("Health check server started on port %d", port)
+
+
+async def main() -> None:
     app = ApplicationBuilder().token(settings.telegram_bot_token).build()
     app.bot_data["ms_client"] = MoySkladClient(settings.moysklad_token)
 
@@ -64,9 +82,15 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(sproduct_callback, pattern="^sproduct:"))
     app.add_handler(CallbackQueryHandler(slist_callback, pattern="^slist:"))
 
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    await run_web_server()
     log.info("Bot started")
-    app.run_polling()
+
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
