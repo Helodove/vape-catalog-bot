@@ -4,7 +4,7 @@ import logging
 import traceback
 from aiohttp import web
 from telegram import Update
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Conflict
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -43,6 +43,9 @@ log = logging.getLogger(__name__)
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     if isinstance(context.error, BadRequest) and "not modified" in str(context.error).lower():
         return
+    if isinstance(context.error, Conflict):
+        log.warning("Telegram Conflict error (duplicate instance), ignoring")
+        return
     err = "".join(traceback.format_exception(type(context.error), context.error, context.error.__traceback__))
     log.error("Unhandled exception:\n%s", err)
     try:
@@ -70,7 +73,7 @@ async def run_web_server() -> None:
     log.info("Health check server started on port %d", port)
 
 
-async def main() -> None:
+def build_app():
     app = ApplicationBuilder().token(settings.telegram_bot_token).build()
     app.bot_data["ms_client"] = MoySkladClient(settings.moysklad_token)
 
@@ -101,15 +104,27 @@ async def main() -> None:
     app.add_handler(CallbackQueryHandler(product_callback, pattern="^product:"))
     app.add_handler(CallbackQueryHandler(sproduct_callback, pattern="^sproduct:"))
     app.add_handler(CallbackQueryHandler(slist_callback, pattern="^slist:"))
-
     app.add_error_handler(error_handler)
+    return app
 
+
+async def main() -> None:
+    # Health check стартует первым — Render сразу видит сервис живым
+    await run_web_server()
+
+    app = build_app()
     await app.initialize()
     await app.start()
-    await app.updater.start_polling()
 
-    await run_web_server()
-    log.info("Bot started")
+    # Повтор при конфликте (два экземпляра во время деплоя)
+    for attempt in range(10):
+        try:
+            await app.updater.start_polling(drop_pending_updates=True)
+            log.info("Bot polling started")
+            break
+        except Conflict:
+            log.warning("Conflict on polling start, retrying in 5s (attempt %d/10)", attempt + 1)
+            await asyncio.sleep(5)
 
     await asyncio.Event().wait()
 
