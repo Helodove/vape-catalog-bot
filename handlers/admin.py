@@ -37,23 +37,30 @@ async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     total_all = raw_all.get("meta", {}).get("size", "?") if raw_all else "❌ ошибка"
     await update.message.reply_text(f"ℹ️ Всего товаров (без фильтра): {total_all}")
 
-    # 3. Тест через assortment (правильный эндпоинт для каталога)
-    test_url = f"{BASE_URL}/entity/assortment?filter=productFolder={folder_href}&limit=3"
-    await update.message.reply_text(f"🔄 Тестирую assortment:\n<code>{test_url}</code>", parse_mode="HTML")
-    try:
-        async with httpx.AsyncClient(timeout=15) as http:
-            resp = await http.get(
-                test_url,
-                headers={"Authorization": f"Bearer {settings.moysklad_token}"},
-            )
-        data = resp.json()
-        total = data.get("meta", {}).get("size", "?")
-        rows = data.get("rows", [])
-        names = "\n".join(f"• {r.get('name','?')}" for r in rows[:3])
-        await update.message.reply_text(
-            f"HTTP {resp.status_code} | Найдено: {total}\n\n{names}" if resp.status_code == 200
-            else f"HTTP {resp.status_code}\n<pre>{resp.text[:600]}</pre>",
-            parse_mode="HTML",
-        )
-    except Exception as e:
-        await update.message.reply_text(f"❌ Исключение: {e}")
+    # 3. Один товар из ассортимента — смотрим его href
+    assort_url = f"{BASE_URL}/entity/assortment?filter=productFolder={folder_href}&limit=1"
+    async with httpx.AsyncClient(timeout=15) as http:
+        ar = await http.get(assort_url, headers={"Authorization": f"Bearer {settings.moysklad_token}"})
+    product_href = ""
+    if ar.status_code == 200:
+        rows = ar.json().get("rows", [])
+        if rows:
+            product_href = rows[0].get("meta", {}).get("href", "")
+    await update.message.reply_text(f"📦 Product href:\n<code>{product_href}</code>", parse_mode="HTML")
+
+    # 4. Отчёт остатков — смотрим assortment.meta.href в ответе
+    stock_url = f"{BASE_URL}/report/stock/all?filter=productFolder={folder_href}&limit=1"
+    async with httpx.AsyncClient(timeout=15) as http:
+        sr = await http.get(stock_url, headers={"Authorization": f"Bearer {settings.moysklad_token}"})
+    stock_href = ""
+    stock_val = None
+    if sr.status_code == 200:
+        srows = sr.json().get("rows", [])
+        if srows:
+            stock_href = srows[0].get("assortment", {}).get("meta", {}).get("href", "")
+            stock_val = srows[0].get("stock")
+    await update.message.reply_text(
+        f"📊 Stock href:\n<code>{stock_href}</code>\n\nstock={stock_val}\n\n"
+        f"{'✅ href совпадают' if product_href and product_href == stock_href else '❌ href НЕ совпадают'}",
+        parse_mode="HTML",
+    )
