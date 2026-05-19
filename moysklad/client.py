@@ -8,6 +8,7 @@ from .cache import cache, TTL_FOLDERS, TTL_PRODUCTS, TTL_STOCK, TTL_IMAGES
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://api.moysklad.ru/api/remap/1.2"
+ALLOWED_TYPES = {"product", "variant"}
 
 
 class MoySkladClient:
@@ -26,7 +27,7 @@ class MoySkladClient:
                     parts.append(f"{k}={urllib.parse.quote(str(v), safe='')}")
             url += "?" + "&".join(parts)
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
+            async with httpx.AsyncClient(timeout=30) as client:
                 r = await client.get(url, headers=self._headers)
                 r.raise_for_status()
                 return r.json()
@@ -66,20 +67,35 @@ class MoySkladClient:
         cached = cache.get(key)
         if cached is not None:
             return cached
-        data = await self._get("/entity/assortment", {"filter": f"productFolder={folder_href}", "limit": 100})
+
+        # Товары и варианты из ассортимента
+        data = await self._get("/entity/assortment", {
+            "filter": f"productFolder={folder_href}",
+            "limit": 200,
+        })
         if data is None:
             return []
-        products = [_parse_product(r) for r in data.get("rows", []) if r.get("meta", {}).get("type") == "product"]
-        products = await self._enrich_stock(products)
+
+        rows = [r for r in data.get("rows", []) if r.get("meta", {}).get("type") in ALLOWED_TYPES]
+        products = [_parse_product(r) for r in rows]
+
+        # Остатки одним запросом для всей папки
+        products = await self._enrich_stock_bulk(products, folder_href)
         cache.set(key, products, TTL_PRODUCTS)
         return products
 
     async def search_products(self, query: str) -> list[Product]:
-        data = await self._get("/entity/product", {"search": query, "limit": 100})
+        data = await self._get("/entity/assortment", {"search": query, "limit": 50})
         if data is None:
             return []
-        products = [_parse_product(r) for r in data.get("rows", [])]
-        products = await self._enrich_stock(products)
+        rows = [r for r in data.get("rows", []) if r.get("meta", {}).get("type") in ALLOWED_TYPES]
+        products = [_parse_product(r) for r in rows]
+        # Остатки одним запросом без фильтра по папке
+        stock_data = await self._get("/report/stock/all", {"search": query, "limit": 200})
+        if stock_data:
+            stock_map = _build_stock_map(stock_data)
+            for p in products:
+                p.stock = stock_map.get(p.href, 0.0)
         return products
 
     async def get_product_image_url(self, product_id: str) -> Optional[str]:
@@ -97,24 +113,30 @@ class MoySkladClient:
         cache.set(key, url if url else "__none__", TTL_IMAGES)
         return url
 
-    async def _enrich_stock(self, products: list[Product]) -> list[Product]:
+    async def _enrich_stock_bulk(self, products: list[Product], folder_href: str) -> list[Product]:
         if not products:
             return products
-        for product in products:
-            key = f"stock:{product.href}"
-            cached = cache.get(key)
-            if cached is not None:
-                product.stock = cached
-                continue
-            data = await self._get("/report/stock/all", {"filter": f"product={product.href}"})
-            stock = 0.0
-            if data:
-                rows = data.get("rows", [])
-                if rows:
-                    stock = rows[0].get("stock", 0.0)
-            cache.set(key, stock, TTL_STOCK)
-            product.stock = stock
+        key = f"stock_bulk:{folder_href}"
+        stock_map = cache.get(key)
+        if stock_map is None:
+            stock_data = await self._get("/report/stock/all", {
+                "filter": f"productFolder={folder_href}",
+                "limit": 1000,
+            })
+            stock_map = _build_stock_map(stock_data) if stock_data else {}
+            cache.set(key, stock_map, TTL_STOCK)
+        for p in products:
+            p.stock = stock_map.get(p.href, 0.0)
         return products
+
+
+def _build_stock_map(stock_data: dict) -> dict:
+    result = {}
+    for row in stock_data.get("rows", []):
+        href = row.get("meta", {}).get("href", "")
+        if href:
+            result[href] = row.get("stock", 0.0)
+    return result
 
 
 def _parse_folder(row: dict) -> ProductFolder:
