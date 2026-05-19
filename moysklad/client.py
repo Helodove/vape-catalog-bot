@@ -1,4 +1,5 @@
 import logging
+import urllib.parse
 from typing import Optional
 import httpx
 from .models import Product, ProductFolder, Attribute, SalePrice, PriceType
@@ -14,14 +15,26 @@ class MoySkladClient:
         self._headers = {"Authorization": f"Bearer {token}"}
 
     async def _get(self, path: str, params: dict = None) -> Optional[dict]:
+        # МойСклад требует filter без URL-кодирования внутренних символов =, : и /
         url = BASE_URL + path
+        if params:
+            parts = []
+            for k, v in params.items():
+                if k == "filter":
+                    parts.append(f"filter={v}")
+                else:
+                    parts.append(f"{k}={urllib.parse.quote(str(v), safe='')}")
+            url += "?" + "&".join(parts)
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.get(url, headers=self._headers, params=params or {})
+                r = await client.get(url, headers=self._headers)
                 r.raise_for_status()
                 return r.json()
+        except httpx.HTTPStatusError as e:
+            log.error("MoySklad HTTP %d: %s — %s", e.response.status_code, url, e.response.text[:300])
+            return None
         except Exception as e:
-            log.error("MoySklad request failed: %s %s — %s", path, params, e)
+            log.error("MoySklad request failed: %s — %s", url, e)
             return None
 
     async def get_root_folders(self) -> list[ProductFolder]:
