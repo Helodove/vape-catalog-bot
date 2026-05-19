@@ -64,7 +64,7 @@ async def folder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if products is None:
         await query.edit_message_text(ERROR_MSG)
         return
-    kb = products_keyboard(products, page, folder_id, False, back_cb)
+    kb = products_keyboard(products, page, folder_id, True, back_cb)
     await query.edit_message_text(
         f"📦 Товаров в категории: {len(products)}",
         reply_markup=kb,
