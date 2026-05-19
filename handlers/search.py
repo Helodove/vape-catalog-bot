@@ -39,7 +39,7 @@ async def search_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("Товары не найдены 🔍")
         return ConversationHandler.END
 
-    kb = search_results_keyboard(products, 0, text, False)
+    kb = search_results_keyboard(products, 0, False)
     await update.message.reply_text(
         f"🔍 Найдено товаров: {len(products)}",
         reply_markup=kb,
@@ -58,5 +58,5 @@ async def slist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not products:
         await query.edit_message_text("Результаты поиска устарели. Выполните поиск заново.")
         return
-    kb = search_results_keyboard(products, page, "", only_in_stock)
+    kb = search_results_keyboard(products, page, only_in_stock)
     await query.edit_message_reply_markup(reply_markup=kb)

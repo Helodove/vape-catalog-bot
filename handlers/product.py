@@ -1,13 +1,15 @@
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from moysklad.client import MoySkladClient
+from moysklad.client import MoySkladClient, BASE_URL
 from moysklad.models import Product
 from keyboards import product_back_keyboard
 
 log = logging.getLogger(__name__)
 
-ATTR_KEYS = ["Крепость никотина", "Объём (мл)", "Производитель", "Бренд", "Вкус", "Линейка"]
+
+def _folder_href(folder_id: str) -> str:
+    return f"{BASE_URL}/entity/productfolder/{folder_id}"
 
 
 def _format_card(p: Product) -> str:
@@ -33,14 +35,19 @@ def _format_card(p: Product) -> str:
 async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    # format: product:{product_id}:{folder_id}:{folder_href}:{page}:{only_in_stock}
-    parts = query.data.split(":", 6)
+    # format: product:{product_id}:{page}:{only_in_stock}
+    parts = query.data.split(":")
     product_id = parts[1]
-    folder_id = parts[2]
-    folder_href = parts[3]
-    page = parts[4]
-    only_in_stock = parts[5]
-    back_cb = f"plist:{folder_id}:{folder_href}:{page}:{only_in_stock}"
+    page = parts[2]
+    only_in_stock = parts[3]
+
+    folder_id = context.user_data.get("current_folder_id")
+    if not folder_id:
+        await query.edit_message_text("Пожалуйста, вернитесь в каталог и откройте категорию заново.")
+        return
+
+    folder_href = _folder_href(folder_id)
+    back_cb = f"plist:{folder_id}:{page}:{only_in_stock}"
     client: MoySkladClient = context.bot_data["ms_client"]
 
     products = await client.get_products(folder_href)
@@ -73,7 +80,7 @@ async def sproduct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     query = update.callback_query
     await query.answer()
     # format: sproduct:{product_id}:{page}:{only_in_stock}
-    parts = query.data.split(":", 4)
+    parts = query.data.split(":")
     product_id = parts[1]
     page = parts[2]
     only_in_stock = parts[3]
