@@ -2,6 +2,12 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 
+class Store(BaseModel):
+    id: str
+    name: str
+    href: str
+
+
 class ProductFolder(BaseModel):
     id: str
     name: str

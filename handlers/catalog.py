@@ -60,7 +60,8 @@ async def folder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     context.user_data["current_folder_id"] = folder_id
-    products = await client.get_products(folder_href)
+    store_href = context.user_data.get("store_href")
+    products = await client.get_products(folder_href, store_href)
     if products is None:
         await query.edit_message_text(ERROR_MSG)
         return
@@ -81,7 +82,8 @@ async def plist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     only_in_stock = bool(int(parts[3]))
     folder_href = _folder_href(folder_id)
     client: MoySkladClient = context.bot_data["ms_client"]
-    products = await client.get_products(folder_href)
+    store_href = context.user_data.get("store_href")
+    products = await client.get_products(folder_href, store_href)
     if products is None:
         await query.edit_message_text(ERROR_MSG)
         return

@@ -2,7 +2,7 @@ import logging
 import urllib.parse
 from typing import Optional
 import httpx
-from .models import Product, ProductFolder, Attribute, SalePrice, PriceType
+from .models import Product, ProductFolder, Store, Attribute, SalePrice, PriceType
 from .cache import cache, TTL_FOLDERS, TTL_PRODUCTS, TTL_STOCK, TTL_IMAGES
 
 log = logging.getLogger(__name__)
@@ -38,6 +38,19 @@ class MoySkladClient:
             log.error("MoySklad request failed: %s — %s", url, e)
             return None
 
+    async def get_stores(self) -> list[Store]:
+        key = "stores"
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        data = await self._get("/entity/store", {"limit": 100})
+        if data is None:
+            return []
+        stores = [Store(id=r["id"], name=r["name"], href=r["meta"]["href"])
+                  for r in data.get("rows", [])]
+        cache.set(key, stores, 86400)
+        return stores
+
     async def get_root_folders(self) -> list[ProductFolder]:
         key = "folders:root"
         cached = cache.get(key)
@@ -62,13 +75,12 @@ class MoySkladClient:
         cache.set(key, folders, TTL_FOLDERS)
         return folders
 
-    async def get_products(self, folder_href: str) -> list[Product]:
-        key = f"products:{folder_href}"
+    async def get_products(self, folder_href: str, store_href: str | None = None) -> list[Product]:
+        key = f"products:{folder_href}:{store_href or 'all'}"
         cached = cache.get(key)
         if cached is not None:
             return cached
 
-        # Товары и варианты из ассортимента
         data = await self._get("/entity/assortment", {
             "filter": f"productFolder={folder_href}",
             "limit": 200,
@@ -78,9 +90,7 @@ class MoySkladClient:
 
         rows = [r for r in data.get("rows", []) if r.get("meta", {}).get("type") in ALLOWED_TYPES]
         products = [_parse_product(r) for r in rows]
-
-        # Остатки одним запросом для всей папки
-        products = await self._enrich_stock_bulk(products, folder_href)
+        products = await self._enrich_stock_bulk(products, folder_href, store_href)
         cache.set(key, products, TTL_PRODUCTS)
         return products
 
@@ -113,14 +123,19 @@ class MoySkladClient:
         cache.set(key, url if url else "__none__", TTL_IMAGES)
         return url
 
-    async def _enrich_stock_bulk(self, products: list[Product], folder_href: str) -> list[Product]:
+    async def _enrich_stock_bulk(
+        self, products: list[Product], folder_href: str, store_href: str | None = None
+    ) -> list[Product]:
         if not products:
             return products
-        key = f"stock_bulk:{folder_href}"
+        key = f"stock_bulk:{folder_href}:{store_href or 'all'}"
         stock_map = cache.get(key)
         if stock_map is None:
+            f = f"productFolder={folder_href}"
+            if store_href:
+                f += f";store={store_href}"
             stock_data = await self._get("/report/stock/all", {
-                "filter": f"productFolder={folder_href}",
+                "filter": f,
                 "quantityMode": "positiveOnly",
                 "limit": 1000,
             })

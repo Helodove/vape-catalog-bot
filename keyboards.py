@@ -1,15 +1,31 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from moysklad.models import ProductFolder, Product
+from moysklad.models import ProductFolder, Product, Store
 
 PAGE_SIZE_FOLDERS = 10
 PAGE_SIZE_PRODUCTS = 8
 
 
-def main_menu_keyboard() -> InlineKeyboardMarkup:
+def main_menu_keyboard(store_name: str | None = None) -> InlineKeyboardMarkup:
+    store_label = f"📍 {store_name}" if store_name else "📍 Все точки"
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton(store_label, callback_data="store:list")],
         [InlineKeyboardButton("📂 Каталог", callback_data="catalog:root:0")],
         [InlineKeyboardButton("🔍 Поиск", callback_data="search:start")],
     ])
+
+
+def stores_keyboard(stores: list[Store], current_id: str | None) -> InlineKeyboardMarkup:
+    rows = []
+    for s in stores:
+        mark = "✅ " if s.id == current_id else ""
+        # store_id и href — оба нужны, но href длинный, передаём только id
+        rows.append([InlineKeyboardButton(
+            f"{mark}{s.name}",
+            callback_data=f"store_pick:{s.id}",
+        )])
+    rows.append([InlineKeyboardButton("🌐 Все точки", callback_data="store_pick:all")])
+    rows.append([InlineKeyboardButton("🏠 В начало", callback_data="home")])
+    return InlineKeyboardMarkup(rows)
 
 
 def folders_keyboard(

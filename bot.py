@@ -32,6 +32,7 @@ from handlers.search import (
     WAITING_QUERY,
 )
 from handlers.admin import refresh_handler, debug_handler
+from handlers.store import store_list_callback, store_select_callback
 
 logging.basicConfig(
     level=logging.INFO,
@@ -101,6 +102,8 @@ def build_app():
     app.add_handler(search_conv)
 
     app.add_handler(CallbackQueryHandler(home_callback, pattern="^home$"))
+    app.add_handler(CallbackQueryHandler(store_list_callback, pattern="^store:list$"))
+    app.add_handler(CallbackQueryHandler(store_select_callback, pattern="^store_pick:"))
     app.add_handler(CallbackQueryHandler(catalog_root_callback, pattern="^catalog:root:"))
     app.add_handler(CallbackQueryHandler(folder_callback, pattern="^folder:"))
     app.add_handler(CallbackQueryHandler(plist_callback, pattern="^plist:"))
