@@ -47,7 +47,8 @@ class MoySkladClient:
         if data is None:
             return []
         stores = [Store(id=r["id"], name=r["name"], href=r["meta"]["href"])
-                  for r in data.get("rows", [])]
+                  for r in data.get("rows", [])
+                  if r.get("name", "").lower().startswith("г ")]
         cache.set(key, stores, 86400)
         return stores
 
@@ -59,7 +60,7 @@ class MoySkladClient:
         data = await self._get("/entity/productfolder", {"filter": "pathName="})
         if data is None:
             return []
-        folders = [_parse_folder(r) for r in data.get("rows", [])]
+        folders = sorted([_parse_folder(r) for r in data.get("rows", [])], key=lambda f: f.name)
         cache.set(key, folders, TTL_FOLDERS)
         return folders
 
@@ -71,7 +72,7 @@ class MoySkladClient:
         data = await self._get("/entity/productfolder", {"filter": f"productFolder={folder_href}"})
         if data is None:
             return []
-        folders = [_parse_folder(r) for r in data.get("rows", [])]
+        folders = sorted([_parse_folder(r) for r in data.get("rows", [])], key=lambda f: f.name)
         cache.set(key, folders, TTL_FOLDERS)
         return folders
 
