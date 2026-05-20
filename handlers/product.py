@@ -12,14 +12,14 @@ def _folder_href(folder_id: str) -> str:
     return f"{BASE_URL}/entity/productfolder/{folder_id}"
 
 
-def _format_card(p: Product, store_name: str | None = None) -> str:
+def _format_card(p: Product) -> str:
     lines = [f"<b>{p.name}</b>"]
+    if p.code:
+        lines.append(f"Артикул: <code>{p.code}</code>")
     price = p.retail_price
     if price is not None:
         lines.append(f"Цена: <b>{price:,.0f} ₽</b>")
     stock_str = "В наличии ✅" if p.in_stock else "Нет в наличии ❌"
-    if store_name:
-        stock_str += f" · {store_name}"
     lines.append(f"Остаток: {stock_str}")
     if p.description:
         lines.append(f"\n{p.description}")
@@ -56,8 +56,7 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.edit_message_text("Товар не найден.")
         return
 
-    store_name = context.user_data.get("store_name")
-    text = _format_card(product, store_name)
+    text = _format_card(product)
     kb = product_back_keyboard(back_cb)
 
     image_url = await client.get_product_image_url(product_id)
@@ -96,8 +95,7 @@ async def sproduct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await query.edit_message_text("Товар не найден.")
         return
 
-    store_name = context.user_data.get("store_name")
-    text = _format_card(product, store_name)
+    text = _format_card(product)
     kb = product_back_keyboard(back_cb)
 
     image_url = await client.get_product_image_url(product_id)
