@@ -121,6 +121,7 @@ class MoySkladClient:
         if stock_map is None:
             stock_data = await self._get("/report/stock/all", {
                 "filter": f"productFolder={folder_href}",
+                "quantityMode": "positiveOnly",
                 "limit": 1000,
             })
             stock_map = _build_stock_map(stock_data) if stock_data else {}
@@ -135,7 +136,7 @@ def _build_stock_map(stock_data: dict) -> dict:
     for row in stock_data.get("rows", []):
         href = row.get("meta", {}).get("href", "").split("?")[0]
         if href:
-            result[href] = row.get("stock", 0.0)
+            result[href] = row.get("quantity", row.get("stock", 0.0))
     return result
 
 
