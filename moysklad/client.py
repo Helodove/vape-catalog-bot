@@ -96,11 +96,10 @@ class MoySkladClient:
         return products
 
     async def search_products(self, query: str) -> list[Product]:
-        data = await self._get("/entity/assortment", {"search": query, "limit": 50})
+        data = await self._get("/entity/product", {"search": query, "limit": 100})
         if data is None:
             return []
-        rows = [r for r in data.get("rows", []) if r.get("meta", {}).get("type") in ALLOWED_TYPES]
-        return [_parse_product(r) for r in rows]
+        return [_parse_product(r) for r in data.get("rows", [])]
 
     async def get_stock_by_store(self, product_href: str) -> dict[str, float]:
         """Возвращает {название_склада: количество} только по реальным точкам с остатком > 0."""

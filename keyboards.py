@@ -109,35 +109,23 @@ def product_back_keyboard(back_cb: str) -> InlineKeyboardMarkup:
 def search_results_keyboard(
     products: list[Product],
     page: int,
-    only_in_stock: bool,
+    only_in_stock: bool = False,
 ) -> InlineKeyboardMarkup:
-    visible = [p for p in products if (not only_in_stock or p.in_stock)]
+    visible = products
     start = page * PAGE_SIZE_PRODUCTS
     chunk = visible[start: start + PAGE_SIZE_PRODUCTS]
     rows = []
     for p in chunk:
-        icon = "🟢" if p.in_stock else "🔴"
         rows.append([InlineKeyboardButton(
-            f"{icon} {p.name}",
-            callback_data=f"sproduct:{p.id}:{page}:{int(only_in_stock)}",
+            f"🔍 {p.name}",
+            callback_data=f"sproduct:{p.id}:{page}:0",
         )])
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton(
-            "◀",
-            callback_data=f"slist:{page - 1}:{int(only_in_stock)}",
-        ))
+        nav.append(InlineKeyboardButton("◀", callback_data=f"slist:{page - 1}:0"))
     if start + PAGE_SIZE_PRODUCTS < len(visible):
-        nav.append(InlineKeyboardButton(
-            "▶",
-            callback_data=f"slist:{page + 1}:{int(only_in_stock)}",
-        ))
+        nav.append(InlineKeyboardButton("▶", callback_data=f"slist:{page + 1}:0"))
     if nav:
         rows.append(nav)
-    filter_label = "Только в наличии 🟢" if not only_in_stock else "Все товары"
-    rows.append([InlineKeyboardButton(
-        filter_label,
-        callback_data=f"slist:0:{int(not only_in_stock)}",
-    )])
     rows.append([InlineKeyboardButton("🏠 В начало", callback_data="home")])
     return InlineKeyboardMarkup(rows)
