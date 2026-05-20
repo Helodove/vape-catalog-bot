@@ -50,14 +50,13 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     text = _format_card(product)
     kb = product_back_keyboard(back_cb)
 
-    image_url = await client.get_product_image_url(product_id)
+    image_url = await client.get_product_image_url(
+        product_id, product.entity_type, product.parent_product_id
+    )
     if image_url:
         try:
             await query.message.reply_photo(
-                photo=image_url,
-                caption=text,
-                parse_mode="HTML",
-                reply_markup=kb,
+                photo=image_url, caption=text, parse_mode="HTML", reply_markup=kb,
             )
             await query.message.delete()
             return
@@ -90,14 +89,13 @@ async def sproduct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = _format_search_card(product, stock_by_store)
     kb = product_back_keyboard(back_cb)
 
-    image_url = await client.get_product_image_url(product_id)
+    image_url = await client.get_product_image_url(
+        product_id, product.entity_type, product.parent_product_id
+    )
     if image_url:
         try:
             await query.message.reply_photo(
-                photo=image_url,
-                caption=text,
-                parse_mode="HTML",
-                reply_markup=kb,
+                photo=image_url, caption=text, parse_mode="HTML", reply_markup=kb,
             )
             await query.message.delete()
             return

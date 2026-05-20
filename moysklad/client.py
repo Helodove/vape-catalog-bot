@@ -122,20 +122,27 @@ class MoySkladClient:
         cache.set(key, result, TTL_STOCK)
         return result
 
-    async def get_product_image_url(self, product_id: str) -> Optional[str]:
+    async def get_product_image_url(self, product_id: str, entity_type: str = "product",
+                                     parent_product_id: str | None = None) -> Optional[str]:
         key = f"image:{product_id}"
         cached = cache.get(key)
         if cached is not None:
             return cached if cached != "__none__" else None
-        data = await self._get(f"/entity/product/{product_id}/images", {"limit": 1})
-        url = None
-        if data and data.get("rows"):
-            meta = data["rows"][0].get("meta", {})
-            href = meta.get("downloadHref") or meta.get("href")
-            if href:
-                url = href
+
+        url = await self._fetch_image(entity_type, product_id)
+        # Для варианта без фото — берём фото родительского товара
+        if not url and entity_type == "variant" and parent_product_id:
+            url = await self._fetch_image("product", parent_product_id)
+
         cache.set(key, url if url else "__none__", TTL_IMAGES)
         return url
+
+    async def _fetch_image(self, entity_type: str, entity_id: str) -> Optional[str]:
+        data = await self._get(f"/entity/{entity_type}/{entity_id}/images", {"limit": 1})
+        if data and data.get("rows"):
+            meta = data["rows"][0].get("meta", {})
+            return meta.get("downloadHref") or meta.get("href")
+        return None
 
     async def _enrich_stock_bulk(
         self, products: list[Product], folder_href: str, store_href: str | None = None
@@ -188,6 +195,8 @@ def _parse_folder(row: dict) -> ProductFolder:
 def _parse_product(row: dict) -> Product:
     meta = row.get("meta", {})
     href = meta.get("href", "")
+    entity_type = meta.get("type", "product")  # "product" или "variant"
+
     sale_prices = []
     for sp in row.get("salePrices", []):
         pt = sp.get("priceType", {})
@@ -195,16 +204,33 @@ def _parse_product(row: dict) -> Product:
             value=sp.get("value", 0),
             priceType=PriceType(name=pt.get("name", "")),
         ))
+
+    # Обычные атрибуты (для товаров) + характеристики (для вариантов)
     attrs = []
     for a in row.get("attributes", []):
         val = a.get("value")
         if isinstance(val, dict):
             val = val.get("name") or str(val)
-        attrs.append(Attribute(name=a.get("name", ""), value=val))
+        if val is not None and str(val).strip():
+            attrs.append(Attribute(name=a.get("name", ""), value=val))
+    for c in row.get("characteristics", []):
+        val = c.get("value")
+        if val is not None and str(val).strip():
+            attrs.append(Attribute(name=c.get("name", ""), value=val))
+
+    # ID родительского товара (для вариантов)
+    parent_product_id = None
+    if entity_type == "variant":
+        parent_href = row.get("product", {}).get("meta", {}).get("href", "")
+        if parent_href:
+            parent_product_id = parent_href.rstrip("/").split("/")[-1]
+
     return Product(
         id=row.get("id", ""),
         name=row.get("name", ""),
         href=href,
+        entity_type=entity_type,
+        parent_product_id=parent_product_id,
         code=row.get("code"),
         description=row.get("description"),
         salePrices=sale_prices,
