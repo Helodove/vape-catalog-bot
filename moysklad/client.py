@@ -100,14 +100,28 @@ class MoySkladClient:
         if data is None:
             return []
         rows = [r for r in data.get("rows", []) if r.get("meta", {}).get("type") in ALLOWED_TYPES]
-        products = [_parse_product(r) for r in rows]
-        # Остатки одним запросом без фильтра по папке
-        stock_data = await self._get("/report/stock/all", {"search": query, "limit": 200})
-        if stock_data:
-            stock_map = _build_stock_map(stock_data)
-            for p in products:
-                p.stock = stock_map.get(p.href, 0.0)
-        return products
+        return [_parse_product(r) for r in rows]
+
+    async def get_stock_by_store(self, product_href: str) -> dict[str, float]:
+        """Возвращает {название_склада: количество} только по реальным точкам с остатком > 0."""
+        key = f"bystore:{product_href}"
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        data = await self._get("/report/stock/bystore", {
+            "filter": f"assortment={product_href}",
+            "quantityMode": "positiveOnly",
+        })
+        result: dict[str, float] = {}
+        if data:
+            for row in data.get("rows", []):
+                for entry in row.get("stockByStore", []):
+                    qty = entry.get("quantity", 0.0)
+                    name = entry.get("store", {}).get("name", "")
+                    if qty > 0 and name.lower().startswith("г "):
+                        result[name] = result.get(name, 0.0) + qty
+        cache.set(key, result, TTL_STOCK)
+        return result
 
     async def get_product_image_url(self, product_id: str) -> Optional[str]:
         key = f"image:{product_id}"
