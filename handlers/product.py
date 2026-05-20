@@ -14,21 +14,11 @@ def _folder_href(folder_id: str) -> str:
 
 def _format_card(p: Product) -> str:
     lines = [f"<b>{p.name}</b>"]
-    if p.code:
-        lines.append(f"Артикул: <code>{p.code}</code>")
     price = p.retail_price
     if price is not None:
         lines.append(f"Цена: <b>{price:,.0f} ₽</b>")
-    stock_str = "В наличии ✅" if p.in_stock else "Нет в наличии ❌"
-    lines.append(f"Остаток: {stock_str}")
-    if p.description:
-        lines.append(f"\n{p.description}")
-    attr_lines = []
-    for a in p.attributes:
-        if a.value is not None and str(a.value).strip():
-            attr_lines.append(f"• {a.name}: {a.value}")
-    if attr_lines:
-        lines.append("\n" + "\n".join(attr_lines))
+    qty = int(p.stock) if p.stock and p.stock > 0 else 0
+    lines.append(f"Остаток: {qty}")
     return "\n".join(lines)
 
 
