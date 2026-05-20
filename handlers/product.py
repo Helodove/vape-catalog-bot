@@ -69,12 +69,10 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def sproduct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    # format: sproduct:{product_id}:{page}:{only_in_stock}
     parts = query.data.split(":")
     product_id = parts[1]
     page = parts[2]
-    only_in_stock = parts[3]
-    back_cb = f"slist:{page}:{only_in_stock}"
+    back_cb = f"slist:{page}:0"
     client: MoySkladClient = context.bot_data["ms_client"]
 
     search_results: list[Product] = context.bot_data.get("search_results", {}).get(
@@ -85,10 +83,17 @@ async def sproduct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await query.edit_message_text("Товар не найден.")
         return
 
-    stock_by_store = await client.get_stock_by_store(product.href)
-    text = _format_search_card(product, stock_by_store)
-    kb = product_back_keyboard(back_cb)
+    # Проверяем наличие вариантов (модификаций)
+    variants = await client.get_product_variants(product.id)
+    if variants:
+        hrefs = [v.href for v in variants]
+        stocks = await client.get_variants_stock(hrefs)
+        text = _format_variants_card(product, variants, stocks)
+    else:
+        stock_by_store = await client.get_stock_by_store(product.href)
+        text = _format_search_card(product, stock_by_store)
 
+    kb = product_back_keyboard(back_cb)
     image_url = await client.get_product_image_url(
         product_id, product.entity_type, product.parent_product_id
     )
@@ -105,6 +110,11 @@ async def sproduct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
 
 
+def _short_store(name: str) -> str:
+    import re
+    return re.sub(r'^г\s+\S+\s+', '', name).strip()
+
+
 def _format_search_card(p: Product, stock_by_store: dict[str, float]) -> str:
     lines = [f"<b>{p.name}</b>"]
     price = p.retail_price
@@ -114,7 +124,37 @@ def _format_search_card(p: Product, stock_by_store: dict[str, float]) -> str:
     if stock_by_store:
         lines.append("📍 Наличие по точкам:")
         for store_name, qty in sorted(stock_by_store.items()):
-            lines.append(f"• {store_name}: <b>{int(qty)}</b> шт.")
+            lines.append(f"• {_short_store(store_name)}: <b>{int(qty)}</b> шт.")
     else:
         lines.append("Нет в наличии ❌")
+    return "\n".join(lines)
+
+
+def _format_variants_card(
+    p: Product,
+    variants: list[Product],
+    stocks: dict[str, dict[str, float]],
+) -> str:
+    lines = [f"<b>{p.name}</b>"]
+    price = p.retail_price
+    if price is not None:
+        lines.append(f"Цена: <b>{price:,.0f} ₽</b>")
+    lines.append("")
+
+    available = [(v, stocks[v.href]) for v in variants if v.href in stocks]
+    if not available:
+        lines.append("Нет в наличии ❌")
+        return "\n".join(lines)
+
+    lines.append("🎨 Варианты в наличии:")
+    for v, store_map in available[:10]:
+        color = v.attributes[0].value if v.attributes else v.name
+        total = int(sum(store_map.values()))
+        store_parts = ", ".join(
+            f"{_short_store(s)} ({int(q)})" for s, q in sorted(store_map.items())
+        )
+        lines.append(f"• <b>{color}</b> — {total} шт.: {store_parts}")
+
+    if len(available) > 10:
+        lines.append(f"  ... и ещё {len(available) - 10} вариантов")
     return "\n".join(lines)

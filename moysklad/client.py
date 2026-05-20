@@ -101,6 +101,41 @@ class MoySkladClient:
             return []
         return [_parse_product(r) for r in data.get("rows", [])]
 
+    async def get_product_variants(self, product_id: str) -> list["Product"]:
+        key = f"variants:{product_id}"
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        data = await self._get(f"/entity/product/{product_id}/variants", {"limit": 100})
+        variants = [_parse_product(r) for r in (data or {}).get("rows", [])]
+        cache.set(key, variants, TTL_PRODUCTS)
+        return variants
+
+    async def get_variants_stock(self, variant_hrefs: list[str]) -> dict[str, dict[str, float]]:
+        """Bulk: возвращает {variant_href: {store_name: qty}} для списка вариантов."""
+        if not variant_hrefs:
+            return {}
+        filter_str = ";".join(f"assortment={h}" for h in variant_hrefs)
+        data = await self._get("/report/stock/bystore", {
+            "filter": filter_str,
+            "quantityMode": "positiveOnly",
+        })
+        result: dict[str, dict[str, float]] = {}
+        if data:
+            for row in data.get("rows", []):
+                href = row.get("assortment", {}).get("meta", {}).get("href", "").split("?")[0]
+                if not href:
+                    continue
+                stores: dict[str, float] = {}
+                for entry in row.get("stockByStore", []):
+                    qty = entry.get("quantity", 0.0)
+                    name = entry.get("store", {}).get("name", "")
+                    if qty > 0 and name.lower().startswith("г "):
+                        stores[name] = stores.get(name, 0.0) + qty
+                if stores:
+                    result[href] = stores
+        return result
+
     async def get_stock_by_store(self, product_href: str) -> dict[str, float]:
         """Возвращает {название_склада: количество} только по реальным точкам с остатком > 0."""
         key = f"bystore:{product_href}"
