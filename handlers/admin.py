@@ -52,7 +52,22 @@ async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         parse_mode="HTML",
     )
 
-    # 4. Получаем варианты через правильный endpoint
+    # 4. Получаем папку и ассортимент через клиент, ищем варианты
+    import json as _json
+    variants = await client.get_product_variants(prod_id)
+    await update.message.reply_text(f"🎨 get_product_variants вернул: {len(variants)} вариантов")
+
+    # Показываем сырой ассортимент папки (первые строки с type=variant)
+    prod_full = await client._get(f"/entity/product/{prod_id}")
+    folder_href = (prod_full or {}).get("productFolder", {}).get("meta", {}).get("href", "")
+    await update.message.reply_text(f"📁 Папка товара:\n<code>{folder_href}</code>", parse_mode="HTML")
+
+    raw_assort = await client._get("/entity/assortment", {"filter": f"productFolder={folder_href}", "limit": 10})
+    rows = (raw_assort or {}).get("rows", [])
+    sample = [{"type": r.get("meta",{}).get("type"), "name": r.get("name"), "product": r.get("product",{}).get("meta",{}).get("href","")[-40:] if r.get("product") else None} for r in rows[:5]]
+    await update.message.reply_text(f"📦 Ассортимент (первые 5):\n<pre>{_json.dumps(sample, ensure_ascii=False, indent=2)}</pre>", parse_mode="HTML")
+
+    # 5. Получаем варианты через правильный endpoint
     prod_href = f"{BASE_URL}/entity/product/{prod_id}"
     var_url = f"{BASE_URL}/entity/variant?filter=product={prod_href}&limit=3"
     async with httpx.AsyncClient(timeout=15) as http:
