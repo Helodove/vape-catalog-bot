@@ -147,22 +147,47 @@ class MoySkladClient:
         return result
 
     async def get_stock_by_store(self, product_href: str) -> dict[str, float]:
-        """Возвращает {название_склада: количество} только по реальным точкам с остатком > 0."""
+        """Возвращает {название_склада: количество} для одного товара/варианта."""
         key = f"bystore:{product_href}"
         cached = cache.get(key)
         if cached is not None:
             return cached
+        # Определяем папку товара и берём сводку по всей папке
+        entity_type = "variant" if "/entity/variant/" in product_href else "product"
+        entity_id = product_href.rstrip("/").split("/")[-1]
+        prod_data = await self._get(f"/entity/{entity_type}/{entity_id}")
+        folder_href = (prod_data or {}).get("productFolder", {}).get("meta", {}).get("href", "")
+        if not folder_href:
+            cache.set(key, {}, TTL_STOCK)
+            return {}
+        folder_map = await self.get_folder_stock_by_store(folder_href)
+        result = folder_map.get(product_href.split("?")[0], {})
+        cache.set(key, result, TTL_STOCK)
+        return result
+
+    async def get_folder_stock_by_store(self, folder_href: str) -> dict[str, dict[str, float]]:
+        """Возвращает {item_href: {store_name: qty}} для всей папки одним запросом."""
+        key = f"folder_bystore:{folder_href}"
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
         data = await self._get("/report/stock/bystore", {
-            "filter": f"assortment={product_href}",
+            "filter": f"productFolder={folder_href}",
         })
-        result: dict[str, float] = {}
+        result: dict[str, dict[str, float]] = {}
         if data:
             for row in data.get("rows", []):
+                href = row.get("assortment", {}).get("meta", {}).get("href", "").split("?")[0]
+                if not href:
+                    continue
+                stores: dict[str, float] = {}
                 for entry in row.get("stockByStore", []):
                     qty = entry.get("quantity", 0.0)
                     name = entry.get("store", {}).get("name", "")
                     if qty > 0 and name.lower().startswith("г "):
-                        result[name] = result.get(name, 0.0) + qty
+                        stores[name] = stores.get(name, 0.0) + qty
+                if stores:
+                    result[href] = stores
         cache.set(key, result, TTL_STOCK)
         return result
 

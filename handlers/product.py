@@ -86,11 +86,14 @@ async def sproduct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # Проверяем наличие вариантов (модификаций)
     variants = await client.get_product_variants(product.id)
     if variants:
-        stocks: dict[str, dict[str, float]] = {}
-        for v in variants:
-            s = await client.get_stock_by_store(v.href)
-            if s:
-                stocks[v.href] = s
+        # Получаем все остатки по точкам для папки одним запросом
+        prod_data = await client._get(f"/entity/product/{product.id}")
+        folder_href = (prod_data or {}).get("productFolder", {}).get("meta", {}).get("href", "")
+        if folder_href:
+            folder_stocks = await client.get_folder_stock_by_store(folder_href)
+        else:
+            folder_stocks = {}
+        stocks = {v.href: folder_stocks[v.href] for v in variants if v.href in folder_stocks}
         text = _format_variants_card(product, variants, stocks)
     else:
         stock_by_store = await client.get_stock_by_store(product.href)
