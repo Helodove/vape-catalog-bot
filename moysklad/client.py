@@ -148,7 +148,6 @@ class MoySkladClient:
             return cached
         data = await self._get("/report/stock/bystore", {
             "filter": f"assortment={product_href}",
-            "quantityMode": "positiveOnly",
         })
         result: dict[str, float] = {}
         if data:
