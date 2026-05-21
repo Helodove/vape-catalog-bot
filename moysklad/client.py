@@ -106,12 +106,18 @@ class MoySkladClient:
         cached = cache.get(key)
         if cached is not None:
             return cached
-        product_href = f"{BASE_URL}/entity/product/{product_id}"
-        data = await self._get("/entity/variant", {
-            "filter": f"product={product_href}",
-            "limit": 100,
-        })
-        variants = [_parse_product(r) for r in (data or {}).get("rows", [])]
+
+        # Узнаём папку товара
+        prod_data = await self._get(f"/entity/product/{product_id}")
+        folder_href = (prod_data or {}).get("productFolder", {}).get("meta", {}).get("href")
+        if not folder_href:
+            cache.set(key, [], TTL_PRODUCTS)
+            return []
+
+        # Загружаем ассортимент папки (берётся из кэша если уже открывали)
+        all_items = await self.get_products(folder_href)
+        variants = [p for p in all_items
+                    if p.entity_type == "variant" and p.parent_product_id == product_id]
         cache.set(key, variants, TTL_PRODUCTS)
         return variants
 
