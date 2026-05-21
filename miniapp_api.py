@@ -95,11 +95,14 @@ def _product_to_dto(p: Product, bot_base_url: str) -> dict:
 async def api_categories(request: web.Request) -> web.Response:
     client: MoySkladClient = request.app["ms_client"]
     folders = await client.get_root_folders()
+    def clean_title(name: str) -> str:
+        return re.sub(r'^\d+\.\s*', '', name).strip()
+
     data = [
         {
             "id": f.id,
-            "title": f.name,
-            "slug": re.sub(r'\W+', '-', f.name.lower()).strip('-'),
+            "title": clean_title(f.name),
+            "slug": re.sub(r'\W+', '-', clean_title(f.name).lower()).strip('-'),
             "productGroupId": f.id,
             "cover": None,
             "sortOrder": i,
