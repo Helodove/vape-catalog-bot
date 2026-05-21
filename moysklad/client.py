@@ -106,7 +106,11 @@ class MoySkladClient:
         cached = cache.get(key)
         if cached is not None:
             return cached
-        data = await self._get(f"/entity/product/{product_id}/variants", {"limit": 100})
+        product_href = f"{BASE_URL}/entity/product/{product_id}"
+        data = await self._get("/entity/variant", {
+            "filter": f"product={product_href}",
+            "limit": 100,
+        })
         variants = [_parse_product(r) for r in (data or {}).get("rows", [])]
         cache.set(key, variants, TTL_PRODUCTS)
         return variants
