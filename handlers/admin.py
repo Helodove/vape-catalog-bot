@@ -37,31 +37,31 @@ async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     total_all = raw_all.get("meta", {}).get("size", "?") if raw_all else "❌ ошибка"
     await update.message.reply_text(f"ℹ️ Всего товаров (без фильтра): {total_all}")
 
-    # 3. Один товар из ассортимента — смотрим его href
-    assort_url = f"{BASE_URL}/entity/assortment?filter=productFolder={folder_href}&limit=1"
-    async with httpx.AsyncClient(timeout=15) as http:
-        ar = await http.get(assort_url, headers={"Authorization": f"Bearer {settings.moysklad_token}"})
-    product_href = ""
-    if ar.status_code == 200:
-        rows = ar.json().get("rows", [])
-        if rows:
-            product_href = rows[0].get("meta", {}).get("href", "")
-    await update.message.reply_text(f"📦 Product href:\n<code>{product_href}</code>", parse_mode="HTML")
+    # 3. Поиск XROS 4 и проверка вариантов
+    search_data = await client._get("/entity/product", {"search": "XROS 4", "limit": 3})
+    if not search_data or not search_data.get("rows"):
+        await update.message.reply_text("⚠️ XROS 4 не найден в поиске")
+        return
 
-    # 4. Отчёт остатков — смотрим assortment.meta.href в ответе
-    stock_url = f"{BASE_URL}/report/stock/all?filter=productFolder={folder_href}&limit=1"
+    prod = search_data["rows"][0]
+    prod_id = prod.get("id", "")
+    prod_name = prod.get("name", "")
+    variants_count = prod.get("variantsCount", 0)
+    await update.message.reply_text(
+        f"🔍 Найден: <b>{prod_name}</b>\nID: <code>{prod_id}</code>\nvariantsCount: {variants_count}",
+        parse_mode="HTML",
+    )
+
+    # 4. Пробуем получить варианты
+    var_url = f"{BASE_URL}/entity/product/{prod_id}/variants?limit=5"
     async with httpx.AsyncClient(timeout=15) as http:
-        sr = await http.get(stock_url, headers={"Authorization": f"Bearer {settings.moysklad_token}"})
-    if sr.status_code == 200:
-        srows = sr.json().get("rows", [])
-        if srows:
-            import json
-            raw = json.dumps(srows[0], ensure_ascii=False, indent=2)
-            await update.message.reply_text(
-                f"📊 Raw stock row:\n<pre>{raw[:1200]}</pre>",
-                parse_mode="HTML",
-            )
-        else:
-            await update.message.reply_text("⚠️ Stock report вернул 0 строк")
+        vr = await http.get(var_url, headers={"Authorization": f"Bearer {settings.moysklad_token}"})
+    vdata = vr.json() if vr.status_code == 200 else {}
+    vrows = vdata.get("rows", [])
+    if vrows:
+        vnames = "\n".join(f"• {r.get('name','?')} (id: {r.get('id','')})" for r in vrows[:5])
+        await update.message.reply_text(f"✅ Варианты (HTTP {vr.status_code}):\n{vnames}")
     else:
-        await update.message.reply_text(f"❌ Stock report HTTP {sr.status_code}: {sr.text[:300]}")
+        await update.message.reply_text(
+            f"⚠️ Вариантов нет (HTTP {vr.status_code})\n{vr.text[:300]}"
+        )
