@@ -143,21 +143,20 @@ def _format_variants_card(
     if price is not None:
         lines.append(f"Цена: <b>{price:,.0f} ₽</b>")
     lines.append("")
+    lines.append("🎨 Варианты:")
 
-    available = [(v, stocks[v.href]) for v in variants if v.href in stocks]
-    if not available:
-        lines.append("Нет в наличии ❌")
-        return "\n".join(lines)
-
-    lines.append("🎨 Варианты в наличии:")
-    for v, store_map in available[:10]:
+    for v in variants[:15]:
         color = v.attributes[0].value if v.attributes else v.name
-        total = int(sum(store_map.values()))
-        store_parts = ", ".join(
-            f"{_short_store(s)} ({int(q)})" for s, q in sorted(store_map.items())
-        )
-        lines.append(f"• <b>{color}</b> — {total} шт.: {store_parts}")
+        store_map = stocks.get(v.href, {})
+        if store_map:
+            total = int(sum(store_map.values()))
+            store_parts = ", ".join(
+                f"{_short_store(s)} ({int(q)})" for s, q in sorted(store_map.items())
+            )
+            lines.append(f"• <b>{color}</b> ✅ {total} шт.: {store_parts}")
+        else:
+            lines.append(f"• {color} — нет в наличии")
 
-    if len(available) > 10:
-        lines.append(f"  ... и ещё {len(available) - 10} вариантов")
+    if len(variants) > 15:
+        lines.append(f"  ... и ещё {len(variants) - 15} вариантов")
     return "\n".join(lines)
