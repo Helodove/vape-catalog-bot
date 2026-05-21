@@ -67,7 +67,18 @@ async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     sample = [{"type": r.get("meta",{}).get("type"), "name": r.get("name"), "product": r.get("product",{}).get("meta",{}).get("href","")[-40:] if r.get("product") else None} for r in rows[:5]]
     await update.message.reply_text(f"📦 Ассортимент (первые 5):\n<pre>{_json.dumps(sample, ensure_ascii=False, indent=2)}</pre>", parse_mode="HTML")
 
-    # 5. Получаем варианты через правильный endpoint
+    # 5. bystore для первого найденного варианта
+    if variants:
+        first_var = variants[0]
+        await update.message.reply_text(f"🔍 Тестирую bystore для:\n<code>{first_var.href}</code>", parse_mode="HTML")
+        raw_bs = await client._get("/report/stock/bystore", {"filter": f"assortment={first_var.href}"})
+        import json as _j2
+        await update.message.reply_text(
+            f"bystore ответ:\n<pre>{_j2.dumps((raw_bs or {}).get('rows', [])[:1], ensure_ascii=False, indent=2)[:1000]}</pre>",
+            parse_mode="HTML",
+        )
+
+    # 6. Получаем варианты через правильный endpoint
     prod_href = f"{BASE_URL}/entity/product/{prod_id}"
     var_url = f"{BASE_URL}/entity/variant?filter=product={prod_href}&limit=3"
     async with httpx.AsyncClient(timeout=15) as http:
