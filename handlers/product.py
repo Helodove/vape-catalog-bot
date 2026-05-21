@@ -86,8 +86,11 @@ async def sproduct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # Проверяем наличие вариантов (модификаций)
     variants = await client.get_product_variants(product.id)
     if variants:
-        hrefs = [v.href for v in variants]
-        stocks = await client.get_variants_stock(hrefs)
+        stocks: dict[str, dict[str, float]] = {}
+        for v in variants:
+            s = await client.get_stock_by_store(v.href)
+            if s:
+                stocks[v.href] = s
         text = _format_variants_card(product, variants, stocks)
     else:
         stock_by_store = await client.get_stock_by_store(product.href)

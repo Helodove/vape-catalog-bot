@@ -52,16 +52,27 @@ async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         parse_mode="HTML",
     )
 
-    # 4. Пробуем получить варианты
-    var_url = f"{BASE_URL}/entity/product/{prod_id}/variants?limit=5"
+    # 4. Получаем варианты через правильный endpoint
+    prod_href = f"{BASE_URL}/entity/product/{prod_id}"
+    var_url = f"{BASE_URL}/entity/variant?filter=product={prod_href}&limit=3"
     async with httpx.AsyncClient(timeout=15) as http:
         vr = await http.get(var_url, headers={"Authorization": f"Bearer {settings.moysklad_token}"})
     vdata = vr.json() if vr.status_code == 200 else {}
     vrows = vdata.get("rows", [])
-    if vrows:
-        vnames = "\n".join(f"• {r.get('name','?')} (id: {r.get('id','')})" for r in vrows[:5])
-        await update.message.reply_text(f"✅ Варианты (HTTP {vr.status_code}):\n{vnames}")
-    else:
-        await update.message.reply_text(
-            f"⚠️ Вариантов нет (HTTP {vr.status_code})\n{vr.text[:300]}"
-        )
+    if not vrows:
+        await update.message.reply_text(f"⚠️ Вариантов нет (HTTP {vr.status_code}): {vr.text[:200]}")
+        return
+    first_var = vrows[0]
+    var_href = first_var.get("meta", {}).get("href", "")
+    vnames = "\n".join(f"• {r.get('name','?')}" for r in vrows)
+    await update.message.reply_text(f"✅ Вариантов (HTTP {vr.status_code}):\n{vnames}\n\nПервый href:\n<code>{var_href}</code>", parse_mode="HTML")
+
+    # 5. Остатки по точкам для первого варианта
+    stock_url = f"{BASE_URL}/report/stock/bystore?filter=assortment={var_href}&quantityMode=positiveOnly"
+    async with httpx.AsyncClient(timeout=15) as http:
+        sr2 = await http.get(stock_url, headers={"Authorization": f"Bearer {settings.moysklad_token}"})
+    import json
+    await update.message.reply_text(
+        f"📊 bystore (HTTP {sr2.status_code}):\n<pre>{sr2.text[:800]}</pre>",
+        parse_mode="HTML",
+    )
