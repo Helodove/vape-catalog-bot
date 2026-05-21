@@ -294,12 +294,17 @@ def _parse_product(row: dict) -> Product:
         if parent_href:
             parent_product_id = parent_href.rstrip("/").split("/")[-1]
 
+    # ID папки/категории товара
+    folder_href = row.get("productFolder", {}).get("meta", {}).get("href", "")
+    category_id = folder_href.rstrip("/").split("/")[-1] if folder_href else None
+
     return Product(
         id=row.get("id", ""),
         name=row.get("name", ""),
         href=href,
         entity_type=entity_type,
         parent_product_id=parent_product_id,
+        category_id=category_id,
         code=row.get("code"),
         description=row.get("description"),
         salePrices=sale_prices,

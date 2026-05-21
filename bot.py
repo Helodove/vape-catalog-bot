@@ -33,6 +33,7 @@ from handlers.search import (
 )
 from handlers.admin import refresh_handler, debug_handler
 from handlers.store import store_list_callback, store_select_callback
+from miniapp_api import register_miniapp_routes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,15 +67,22 @@ async def health_check(request: web.Request) -> web.Response:
     return web.Response(text="OK")
 
 
-async def run_web_server() -> None:
+async def run_web_server(ms_client: MoySkladClient) -> None:
     port = int(os.environ.get("PORT", 8080))
     app = web.Application()
+    app["ms_client"] = ms_client
     app.router.add_get("/", health_check)
+    register_miniapp_routes(
+        app,
+        ms_token=settings.moysklad_token,
+        bot_base_url=settings.bot_base_url,
+        miniapp_origin=settings.miniapp_origin,
+    )
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    log.info("Health check server started on port %d", port)
+    log.info("Web server started on port %d (health + mini app API)", port)
 
 
 def build_app():
@@ -115,17 +123,18 @@ def build_app():
 
 
 async def main() -> None:
-    # Health check стартует первым — Render сразу видит сервис живым
-    await run_web_server()
+    ms_client = MoySkladClient(settings.moysklad_token)
+    await run_web_server(ms_client)
 
-    app = build_app()
-    await app.initialize()
-    await app.start()
+    tg_app = build_app()
+    tg_app.bot_data["ms_client"] = ms_client
+    await tg_app.initialize()
+    await tg_app.start()
 
     # Повтор при конфликте (два экземпляра во время деплоя)
     for attempt in range(10):
         try:
-            await app.updater.start_polling(drop_pending_updates=True)
+            await tg_app.updater.start_polling(drop_pending_updates=True)
             log.info("Bot polling started")
             break
         except Conflict:

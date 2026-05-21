@@ -38,8 +38,9 @@ class Product(BaseModel):
     id: str
     name: str
     href: str
-    entity_type: str = "product"          # "product" или "variant"
-    parent_product_id: Optional[str] = None  # для вариантов — ID родительского товара
+    entity_type: str = "product"
+    parent_product_id: Optional[str] = None
+    category_id: Optional[str] = None
     code: Optional[str] = None
     description: Optional[str] = None
     sale_prices: list[SalePrice] = Field(default_factory=list, alias="salePrices")
