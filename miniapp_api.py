@@ -71,15 +71,16 @@ def _product_to_dto(p: Product, bot_base_url: str) -> dict:
 
     brand = _attr_value(p, "производитель", "бренд", "brand")
 
-    # Варианты не имеют собственных фото — берём фото родительского товара
-    img_entity = "product"
-    img_id = p.parent_product_id if p.entity_type == "variant" and p.parent_product_id else p.id
-    if p.entity_type != "variant":
-        img_entity = p.entity_type
-    image_url = (
-        f"{bot_base_url}/v1/images/{img_entity}/{img_id}/0"
-        if bot_base_url else None
-    )
+    # Используем CDN-ссылку на миниатюру (из expand=images, без авторизации)
+    # Fallback: прокси через Railway (если CDN недоступен или товар загружен без expand)
+    if p.image_url:
+        image_url: str | None = p.image_url
+    elif bot_base_url:
+        img_entity = "product"
+        img_id = p.parent_product_id if p.entity_type == "variant" and p.parent_product_id else p.id
+        image_url = f"{bot_base_url}/v1/images/{img_entity}/{img_id}/0"
+    else:
+        image_url = None
 
     return {
         "id": p.id,
@@ -185,19 +186,18 @@ async def api_stock(request: web.Request) -> web.Response:
         return json_ok([], request)
 
     stores = await client.get_stores()
-    store_ids = {s.name: s.id for s in stores}
+    valid_store_ids = {s.id for s in stores}
 
-    # Пробуем как обычный товар; если пусто — пробуем как вариант
-    product_href = f"{BASE_URL}/entity/product/{product_id}"
-    stock_map = await client.get_stock_by_store(product_href)
-    if not stock_map:
-        variant_href = f"{BASE_URL}/entity/variant/{product_id}"
-        stock_map = await client.get_stock_by_store(variant_href)
+    # Краткий отчёт /bystore/current: один запрос, работает для product и variant
+    # filter=assortmentId принимает UUID напрямую (не href)
+    data = await client._get("/report/stock/bystore/current", {
+        "filter": f"assortmentId={product_id}",
+    })
 
     result = [
-        {"shopId": store_ids.get(name, name), "quantity": int(qty)}
-        for name, qty in stock_map.items()
-        if qty > 0
+        {"shopId": row["storeId"], "quantity": int(row.get("stock", 0))}
+        for row in (data if isinstance(data, list) else [])
+        if row.get("storeId") in valid_store_ids and (row.get("stock") or 0) > 0
     ]
     return json_ok(result, request)
 
@@ -218,14 +218,24 @@ async def api_image(request: web.Request) -> web.Response:
             rows = r.json().get("rows", [])
             if not rows:
                 raise web.HTTPNotFound()
-            download_href = (
-                rows[0].get("meta", {}).get("downloadHref")
-                or rows[0].get("meta", {}).get("href")
-            )
+
+            # Используем miniature.downloadHref — прямой CDN без авторизации, быстрее
+            cdn_url = rows[0].get("miniature", {}).get("downloadHref")
+            if cdn_url:
+                return web.Response(
+                    status=302,
+                    headers={
+                        "Location": cdn_url,
+                        "Cache-Control": "public, max-age=86400",
+                        **cors_headers(request),
+                    },
+                )
+
+            # Fallback: скачиваем полное изображение через downloadHref (302 → CDN)
+            download_href = rows[0].get("meta", {}).get("downloadHref")
             if not download_href:
                 raise web.HTTPNotFound()
-            # Скачиваем само изображение
-            img_r = await http.get(download_href, headers={"Authorization": f"Bearer {ms_token}"})
+            img_r = await http.get(download_href, headers={"Authorization": f"Bearer {ms_token}"}, follow_redirects=True)
             if img_r.status_code != 200:
                 raise web.HTTPNotFound()
             content_type = img_r.headers.get("content-type", "image/jpeg")

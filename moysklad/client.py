@@ -85,6 +85,7 @@ class MoySkladClient:
         data = await self._get("/entity/assortment", {
             "filter": f"productFolder={folder_href}",
             "limit": 200,
+            "expand": "images",
         })
         if data is None:
             return []
@@ -298,6 +299,14 @@ def _parse_product(row: dict) -> Product:
     folder_href = row.get("productFolder", {}).get("meta", {}).get("href", "")
     category_id = folder_href.rstrip("/").split("/")[-1] if folder_href else None
 
+    # Если изображения были запрошены через expand=images — берём CDN-ссылку на миниатюру
+    image_url: str | None = None
+    images_field = row.get("images", {})
+    if isinstance(images_field, dict):
+        img_rows = images_field.get("rows", [])
+        if img_rows:
+            image_url = img_rows[0].get("miniature", {}).get("downloadHref")
+
     return Product(
         id=row.get("id", ""),
         name=row.get("name", ""),
@@ -309,4 +318,5 @@ def _parse_product(row: dict) -> Product:
         description=row.get("description"),
         salePrices=sale_prices,
         attributes=attrs,
+        image_url=image_url,
     )
