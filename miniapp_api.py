@@ -327,28 +327,6 @@ async def api_image(request: web.Request) -> web.Response:
                 raise web.HTTPNotFound()
             rows = r.json().get("rows", [])
 
-            # Если у товара нет фото — ищем первый вариант с фото
-            if not rows and entity_type == "product":
-                prod_r = await http.get(
-                    f"{BASE_URL}/entity/product/{entity_id}",
-                    headers={"Authorization": f"Bearer {ms_token}"},
-                )
-                if prod_r.status_code == 200:
-                    folder_href = prod_r.json().get("productFolder", {}).get("meta", {}).get("href", "")
-                    if folder_href:
-                        assort_r = await http.get(
-                            f"{BASE_URL}/entity/assortment?filter=productFolder={folder_href}&limit=50&expand=images",
-                            headers={"Authorization": f"Bearer {ms_token}"},
-                        )
-                        if assort_r.status_code == 200:
-                            for row in assort_r.json().get("rows", []):
-                                if (row.get("meta", {}).get("type") == "variant" and
-                                        row.get("product", {}).get("meta", {}).get("href", "").endswith(entity_id)):
-                                    var_imgs = row.get("images", {}).get("rows", [])
-                                    if var_imgs:
-                                        rows = var_imgs
-                                        break
-
             if not rows:
                 raise web.HTTPNotFound()
 
