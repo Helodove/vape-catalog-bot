@@ -53,6 +53,16 @@ def _attr_value(product: Product, *names: str):
     return None
 
 
+def _extract_color(p: Product) -> str:
+    """Извлекает цвет из характеристик варианта."""
+    for a in p.attributes:
+        if any(w in a.name.lower() for w in ("цвет", "color", "colour", "колор")):
+            return str(a.value)
+    # Fallback: текст в скобках в конце названия — "(Prism Blue)"
+    m = re.search(r'\((.+)\)$', p.name)
+    return m.group(1) if m else p.name
+
+
 def _parse_store(name: str) -> tuple[str, str]:
     """"г Липецк ул Космонавтов, 100" → ("Липецк", "ул Космонавтов, 100")"""
     m = re.match(r'^г\s+(\S+)\s+(.+)$', name.strip())
@@ -159,7 +169,17 @@ async def api_product(request: web.Request) -> web.Response:
 
     p = _parse_product(raw)
     await client._enrich_stock_bulk([p], p.href.rsplit("/", 1)[0] + "/")
-    return json_ok(_product_to_dto(p, bot_base), request)
+    dto = _product_to_dto(p, bot_base)
+
+    # Если у товара есть модификации — добавляем список вариантов с цветами
+    if raw.get("variantsCount", 0) > 0 and p.entity_type == "product":
+        variants = await client.get_product_variants(product_id)
+        dto["variants"] = [
+            {"id": v.id, "color": _extract_color(v)}
+            for v in variants
+        ]
+
+    return json_ok(dto, request)
 
 
 async def api_shops(request: web.Request) -> web.Response:
