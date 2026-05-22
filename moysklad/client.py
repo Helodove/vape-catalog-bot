@@ -170,26 +170,14 @@ class MoySkladClient:
         return products
 
     async def search_products(self, query: str) -> list[Product]:
-        # Используем assortment для поиска — возвращает и продукты и варианты с фото
-        data = await self._get("/entity/assortment", {
+        data = await self._get("/entity/product", {
             "search": query,
             "limit": 100,
             "expand": "images",
         })
         if data is None:
             return []
-        rows = [r for r in data.get("rows", []) if r.get("meta", {}).get("type") in ALLOWED_TYPES]
-        products = [_parse_product(r) for r in rows]
-
-        # Агрегируем фото вариантов в родителей (как в get_products)
-        by_id = {p.id: p for p in products}
-        for p in products:
-            if p.entity_type == "variant" and p.parent_product_id and p.parent_product_id in by_id:
-                parent = by_id[p.parent_product_id]
-                if not parent.image_url and p.image_url:
-                    parent.image_url = p.image_url
-
-        return products
+        return [_parse_product(r) for r in data.get("rows", [])]
 
     async def get_product_variants(self, product_id: str) -> list["Product"]:
         key = f"variants:{product_id}"
