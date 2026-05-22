@@ -64,6 +64,20 @@ class MoySkladClient:
         cache.set(key, folders, TTL_FOLDERS)
         return folders
 
+    async def get_all_subfolders(self, folder_href: str) -> list[ProductFolder]:
+        """Рекурсивно все подпапки любой глубины (с кэшом)."""
+        key = f"all_subfolders:{folder_href}"
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        direct = await self.get_subfolders(folder_href)
+        result = list(direct)
+        for sf in direct:
+            nested = await self.get_all_subfolders(sf.href)
+            result.extend(nested)
+        cache.set(key, result, TTL_FOLDERS)
+        return result
+
     async def get_subfolders(self, folder_href: str) -> list[ProductFolder]:
         key = f"folders:{folder_href}"
         cached = cache.get(key)
@@ -82,8 +96,8 @@ class MoySkladClient:
         if cached is not None:
             return cached
 
-        # Включаем подпапки (один уровень) — товары типа Vaporesso могут лежать в подпапке
-        subfolders = await self.get_subfolders(folder_href)
+        # Включаем ВСЕ подпапки рекурсивно — товары могут лежать на любой глубине
+        subfolders = await self.get_all_subfolders(folder_href)
         all_hrefs = [folder_href] + [sf.href for sf in subfolders]
         folder_filter = ";".join(f"productFolder={h}" for h in all_hrefs)
 
