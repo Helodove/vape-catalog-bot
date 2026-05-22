@@ -96,21 +96,42 @@ class MoySkladClient:
         if cached is not None:
             return cached
 
-        # Включаем ВСЕ подпапки рекурсивно — товары могут лежать на любой глубине
-        subfolders = await self.get_all_subfolders(folder_href)
-        all_hrefs = [folder_href] + [sf.href for sf in subfolders]
-        folder_filter = ";".join(f"productFolder={h}" for h in all_hrefs)
+        # Получаем имя папки чтобы использовать pathName фильтр для подпапок
+        folder_id = folder_href.rstrip("/").split("/")[-1]
+        folder_info = await self._get(f"/entity/productfolder/{folder_id}")
+        folder_name = (folder_info or {}).get("name", "")
 
-        data = await self._get("/entity/assortment", {
-            "filter": folder_filter,
+        # Запрос 1: товары напрямую в этой папке
+        data1 = await self._get("/entity/assortment", {
+            "filter": f"productFolder={folder_href}",
             "limit": 200,
             "expand": "images",
         })
-        if data is None:
+
+        # Запрос 2: товары во всех подпапках через pathName (находит любую глубину вложенности)
+        data2 = None
+        if folder_name:
+            data2 = await self._get("/entity/assortment", {
+                "filter": f"pathName~={folder_name}",
+                "limit": 200,
+                "expand": "images",
+            })
+
+        # Объединяем результаты, убираем дубли по id
+        seen_ids: set[str] = set()
+        combined_rows = []
+        for row in list((data1 or {}).get("rows", [])) + list((data2 or {}).get("rows", [])):
+            rid = row.get("id")
+            if rid and rid not in seen_ids and row.get("meta", {}).get("type") in ALLOWED_TYPES:
+                seen_ids.add(rid)
+                combined_rows.append(row)
+
+        if not combined_rows:
+            cache.set(key, [], TTL_PRODUCTS)
             return []
 
-        rows = [r for r in data.get("rows", []) if r.get("meta", {}).get("type") in ALLOWED_TYPES]
-        products = [_parse_product(r) for r in rows]
+        folder_filter = f"productFolder={folder_href}"
+        products = [_parse_product(r) for r in combined_rows]
         products = await self._enrich_stock_bulk(products, folder_href, store_href, folder_filter)
 
         # Агрегируем остатки вариантов → родительский товар
