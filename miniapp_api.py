@@ -199,6 +199,28 @@ async def api_product(request: web.Request) -> web.Response:
     return json_ok(dto, request)
 
 
+async def api_subcategories(request: web.Request) -> web.Response:
+    """Прямые подпапки категории из МойСклад — используются как бренды/типы."""
+    client: MoySkladClient = request.app["ms_client"]
+    category_id = request.rel_url.query.get("categoryId", "")
+    if not category_id:
+        return json_ok([], request)
+
+    folder_href = f"{BASE_URL}/entity/productfolder/{category_id}"
+    subfolders = await client.get_subfolders(folder_href)
+
+    data = [
+        {
+            "id": f.id,
+            "title": re.sub(r'^\d+\.\s*', '', f.name).strip(),
+            "slug": re.sub(r'\W+', '-', f.name.lower()).strip('-'),
+            "cover": None,
+        }
+        for f in subfolders
+    ]
+    return json_ok(data, request)
+
+
 async def api_brands(request: web.Request) -> web.Response:
     """Уникальные бренды в категории — для экрана выбора производителя."""
     client: MoySkladClient = request.app["ms_client"]
@@ -331,6 +353,7 @@ def register_miniapp_routes(app: web.Application, ms_token: str, bot_base_url: s
 
     app.router.add_route("OPTIONS", "/v1/{path_info:.*}", options_handler)
     app.router.add_get("/v1/categories", api_categories)
+    app.router.add_get("/v1/subcategories", api_subcategories)
     app.router.add_get("/v1/brands", api_brands)
     app.router.add_get("/v1/products", api_products)
     app.router.add_get("/v1/products/{id}", api_product)
