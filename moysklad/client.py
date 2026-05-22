@@ -129,17 +129,30 @@ class MoySkladClient:
         if cached is not None:
             return cached
 
-        # Прямой запрос вариантов по родительскому товару — не зависит от get_products
-        product_href = f"{BASE_URL}/entity/product/{product_id}"
-        data = await self._get("/entity/variant", {
-            "filter": f"product={product_href}",
-            "limit": 100,
+        # Узнаём папку товара
+        prod_data = await self._get(f"/entity/product/{product_id}")
+        folder_href = (prod_data or {}).get("productFolder", {}).get("meta", {}).get("href")
+        if not folder_href:
+            cache.set(key, [], TTL_PRODUCTS)
+            return []
+
+        # Запрашиваем ассортимент папки напрямую (НЕ через get_products — он фильтрует варианты)
+        subfolders = await self.get_subfolders(folder_href)
+        all_hrefs = [folder_href] + [sf.href for sf in subfolders]
+        folder_filter = ";".join(f"productFolder={h}" for h in all_hrefs)
+
+        data = await self._get("/entity/assortment", {
+            "filter": folder_filter,
+            "limit": 200,
         })
         if not data:
             cache.set(key, [], TTL_PRODUCTS)
             return []
 
-        variants = [_parse_product(r) for r in data.get("rows", [])]
+        all_items = [_parse_product(r) for r in data.get("rows", [])
+                     if r.get("meta", {}).get("type") in ALLOWED_TYPES]
+        variants = [p for p in all_items
+                    if p.entity_type == "variant" and p.parent_product_id == product_id]
         cache.set(key, variants, TTL_PRODUCTS)
         return variants
 
