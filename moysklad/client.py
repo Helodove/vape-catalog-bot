@@ -149,8 +149,7 @@ class MoySkladClient:
         products = [_parse_product(r) for r in combined_rows]
         products = await self._enrich_stock_bulk(products, folder_href, store_href, folder_filter)
 
-        # Агрегируем остатки вариантов → родительский товар
-        # Варианты, чей родитель есть в списке, скрываем — их заменяет карточка родителя с выбором цвета
+        # Агрегируем остатки и картинки вариантов → родительский товар
         by_id = {p.id: p for p in products}
         parent_ids_with_variants: set[str] = set()
         for p in products:
@@ -158,6 +157,9 @@ class MoySkladClient:
                 parent_ids_with_variants.add(p.parent_product_id)
                 parent = by_id[p.parent_product_id]
                 parent.stock = (parent.stock or 0.0) + (p.stock or 0.0)
+                # Если у родителя нет фото — берём у первого варианта с фото
+                if not parent.image_url and p.image_url:
+                    parent.image_url = p.image_url
 
         # Убираем варианты, у которых родитель присутствует в списке
         products = [p for p in products if not (
@@ -194,6 +196,7 @@ class MoySkladClient:
         data = await self._get("/entity/assortment", {
             "filter": folder_filter,
             "limit": 200,
+            "expand": "images",  # нужны фото вариантов для fallback
         })
         if not data:
             cache.set(key, [], TTL_PRODUCTS)
