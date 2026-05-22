@@ -208,18 +208,26 @@ async def api_brands(request: web.Request) -> web.Response:
     folder_href = f"{BASE_URL}/entity/productfolder/{category_id}"
     products = await client.get_products(folder_href)
 
-    seen: set[str] = set()
-    brands = []
+    brand_names: dict[str, str] = {}   # lower → display name
+    brand_count: dict[str, int] = {}   # lower → кол-во товаров в наличии
+
     for p in products:
         brand = _get_brand(p)
         if not brand:
             continue
         key = brand.lower()
-        if key not in seen:
-            seen.add(key)
-            brands.append({"name": brand})
-    brands.sort(key=lambda b: b["name"].lower())
-    return json_ok(brands, request)
+        if key not in brand_names:
+            brand_names[key] = brand
+            brand_count[key] = 0
+        if p.in_stock:
+            brand_count[key] += 1
+
+    # Сначала бренды с максимальным наличием, затем алфавит
+    result = sorted(
+        [{"name": brand_names[k], "count": brand_count[k]} for k in brand_names],
+        key=lambda b: (-b["count"], b["name"].lower()),
+    )
+    return json_ok(result, request)
 
 
 async def api_shops(request: web.Request) -> web.Response:
