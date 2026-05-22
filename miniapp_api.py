@@ -10,6 +10,7 @@ import httpx
 from aiohttp import web
 from moysklad.client import MoySkladClient, BASE_URL
 from moysklad.models import Product
+import image_db
 
 log = logging.getLogger(__name__)
 
@@ -100,10 +101,15 @@ def _product_to_dto(p: Product, bot_base_url: str) -> dict:
 
     brand = _get_brand(p)
 
-    # Используем CDN-ссылку на миниатюру (из expand=images, без авторизации)
-    # Fallback: прокси через Railway (если CDN недоступен или товар загружен без expand)
-    if p.image_url:
-        image_url: str | None = p.image_url
+    # Приоритет изображений:
+    # 1. Кастомный URL из Supabase (product_images)
+    # 2. CDN-ссылка из МойСклад (expand=images → miniature.downloadHref)
+    # 3. Прокси через Railway
+    custom_image = image_db.get_cached(p.id)
+    if custom_image:
+        image_url: str | None = custom_image
+    elif p.image_url:
+        image_url = p.image_url
     elif bot_base_url:
         img_entity = "product"
         img_id = p.parent_product_id if p.entity_type == "variant" and p.parent_product_id else p.id
@@ -365,11 +371,23 @@ async def api_image(request: web.Request) -> web.Response:
         raise web.HTTPInternalServerError()
 
 
-def register_miniapp_routes(app: web.Application, ms_token: str, bot_base_url: str, miniapp_origin: str) -> None:
+async def _warm_image_cache(app: web.Application) -> None:
+    """Прогрев кеша картинок из Supabase при старте."""
+    supabase_url = app.get("supabase_url", "")
+    supabase_key = app.get("supabase_key", "")
+    if supabase_url and supabase_key:
+        await image_db.load_images(supabase_url, supabase_key)
+
+
+def register_miniapp_routes(app: web.Application, ms_token: str, bot_base_url: str,
+                             miniapp_origin: str, supabase_url: str = "", supabase_key: str = "") -> None:
     """Регистрирует все маршруты API мини-аппа в aiohttp приложении."""
     app["ms_token"] = ms_token
     app["bot_base_url"] = bot_base_url.rstrip("/")
     app["miniapp_origin"] = miniapp_origin
+    app["supabase_url"] = supabase_url
+    app["supabase_key"] = supabase_key
+    app.on_startup.append(_warm_image_cache)
 
     app.router.add_route("OPTIONS", "/v1/{path_info:.*}", options_handler)
     app.router.add_get("/v1/categories", api_categories)

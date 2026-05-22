@@ -77,6 +77,8 @@ async def run_web_server(ms_client: MoySkladClient) -> None:
         ms_token=settings.moysklad_token,
         bot_base_url=settings.bot_base_url,
         miniapp_origin=settings.miniapp_origin,
+        supabase_url=settings.supabase_url,
+        supabase_key=settings.supabase_service_key,
     )
     runner = web.AppRunner(app)
     await runner.setup()
