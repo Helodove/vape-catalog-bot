@@ -134,14 +134,18 @@ async def api_products(request: web.Request) -> web.Response:
     category_id = request.rel_url.query.get("categoryId", "")
     search = request.rel_url.query.get("search", "")
     in_stock = request.rel_url.query.get("inStock", "") == "true"
+    store_id = request.rel_url.query.get("storeId", "")
     limit = min(int(request.rel_url.query.get("limit", "50")), 200)
     offset = int(request.rel_url.query.get("offset", "0"))
+
+    # Если передан storeId — фильтруем остатки по конкретному складу
+    store_href = f"{BASE_URL}/entity/store/{store_id}" if store_id else None
 
     if search:
         products = await client.search_products(search)
     elif category_id:
         folder_href = f"{BASE_URL}/entity/productfolder/{category_id}"
-        products = await client.get_products(folder_href)
+        products = await client.get_products(folder_href, store_href)
     else:
         products = []
 
