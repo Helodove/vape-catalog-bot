@@ -80,6 +80,9 @@ def _product_to_dto(p: Product, bot_base_url: str) -> dict:
     puffs = int(puffs_raw) if puffs_raw and str(puffs_raw).isdigit() else None
 
     brand = _attr_value(p, "производитель", "бренд", "brand")
+    # Автопарсинг: первое слово названия — бренд (если атрибут не заполнен)
+    if not brand and p.name:
+        brand = p.name.split()[0]
 
     # Используем CDN-ссылку на миниатюру (из expand=images, без авторизации)
     # Fallback: прокси через Railway (если CDN недоступен или товар загружен без expand)

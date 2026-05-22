@@ -93,6 +93,22 @@ class MoySkladClient:
         rows = [r for r in data.get("rows", []) if r.get("meta", {}).get("type") in ALLOWED_TYPES]
         products = [_parse_product(r) for r in rows]
         products = await self._enrich_stock_bulk(products, folder_href, store_href)
+
+        # Агрегируем остатки вариантов → родительский товар
+        # Варианты, чей родитель есть в списке, скрываем — их заменяет карточка родителя с выбором цвета
+        by_id = {p.id: p for p in products}
+        parent_ids_with_variants: set[str] = set()
+        for p in products:
+            if p.entity_type == "variant" and p.parent_product_id and p.parent_product_id in by_id:
+                parent_ids_with_variants.add(p.parent_product_id)
+                parent = by_id[p.parent_product_id]
+                parent.stock = (parent.stock or 0.0) + (p.stock or 0.0)
+
+        # Убираем варианты, у которых родитель присутствует в списке
+        products = [p for p in products if not (
+            p.entity_type == "variant" and p.parent_product_id in parent_ids_with_variants
+        )]
+
         cache.set(key, products, TTL_PRODUCTS)
         return products
 
