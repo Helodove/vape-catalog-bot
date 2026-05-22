@@ -83,8 +83,23 @@ class MoySkladClient:
         cached = cache.get(key)
         if cached is not None:
             return cached
-        data = await self._get("/entity/productfolder", {"filter": f"productFolder={folder_href}"})
+
+        # Получаем имя и pathName самой папки
+        folder_id = folder_href.rstrip("/").split("/")[-1]
+        folder_data = await self._get(f"/entity/productfolder/{folder_id}")
+        if not folder_data:
+            cache.set(key, [], TTL_FOLDERS)
+            return []
+
+        folder_name = folder_data.get("name", "")
+        folder_path = folder_data.get("pathName", "")
+        # Путь, который дети видят в своём pathName
+        child_path = f"{folder_path}/{folder_name}" if folder_path else folder_name
+
+        # Ищем папки чей pathName равен пути родителя
+        data = await self._get("/entity/productfolder", {"filter": f"pathName={child_path}"})
         if data is None:
+            cache.set(key, [], TTL_FOLDERS)
             return []
         folders = sorted([_parse_folder(r) for r in data.get("rows", [])], key=lambda f: f.name)
         cache.set(key, folders, TTL_FOLDERS)
