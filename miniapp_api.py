@@ -187,13 +187,14 @@ async def api_product(request: web.Request) -> web.Response:
     await client._enrich_stock_bulk([p], p.href.rsplit("/", 1)[0] + "/")
     dto = _product_to_dto(p, bot_base)
 
-    # Если у товара есть модификации — добавляем список вариантов с цветами
-    if raw.get("variantsCount", 0) > 0 and p.entity_type == "product":
+    # Загружаем варианты (цвета) если это обычный товар
+    if p.entity_type == "product":
         variants = await client.get_product_variants(product_id)
-        dto["variants"] = [
-            {"id": v.id, "color": _extract_color(v)}
-            for v in variants
-        ]
+        if variants:
+            dto["variants"] = [
+                {"id": v.id, "color": _extract_color(v)}
+                for v in variants
+            ]
 
     return json_ok(dto, request)
 
