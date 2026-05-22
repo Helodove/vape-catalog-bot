@@ -149,6 +149,9 @@ async def api_products(request: web.Request) -> web.Response:
     else:
         products = []
 
+    brand_filter = request.rel_url.query.get("brand", "")
+    if brand_filter:
+        products = [p for p in products if p.brand == brand_filter]
     if in_stock:
         products = [p for p in products if p.in_stock]
 
@@ -184,6 +187,26 @@ async def api_product(request: web.Request) -> web.Response:
         ]
 
     return json_ok(dto, request)
+
+
+async def api_brands(request: web.Request) -> web.Response:
+    """Уникальные бренды в категории — для экрана выбора производителя."""
+    client: MoySkladClient = request.app["ms_client"]
+    category_id = request.rel_url.query.get("categoryId", "")
+    if not category_id:
+        return json_ok([], request)
+
+    folder_href = f"{BASE_URL}/entity/productfolder/{category_id}"
+    products = await client.get_products(folder_href)
+
+    seen: set[str] = set()
+    brands = []
+    for p in products:
+        if p.brand and p.brand not in seen:
+            seen.add(p.brand)
+            brands.append({"name": p.brand})
+    brands.sort(key=lambda b: b["name"].lower())
+    return json_ok(brands, request)
 
 
 async def api_shops(request: web.Request) -> web.Response:
@@ -286,6 +309,7 @@ def register_miniapp_routes(app: web.Application, ms_token: str, bot_base_url: s
 
     app.router.add_route("OPTIONS", "/v1/{path_info:.*}", options_handler)
     app.router.add_get("/v1/categories", api_categories)
+    app.router.add_get("/v1/brands", api_brands)
     app.router.add_get("/v1/products", api_products)
     app.router.add_get("/v1/products/{id}", api_product)
     app.router.add_get("/v1/shops", api_shops)
