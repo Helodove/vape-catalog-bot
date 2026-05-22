@@ -53,6 +53,14 @@ def _attr_value(product: Product, *names: str):
     return None
 
 
+def _get_brand(p: Product) -> str | None:
+    """Бренд: атрибут МойСклад → первое слово названия."""
+    brand = _attr_value(p, "производитель", "бренд", "brand")
+    if not brand and p.name:
+        brand = p.name.split()[0]
+    return str(brand) if brand else None
+
+
 def _extract_color(p: Product) -> str:
     """Извлекает цвет из характеристик варианта."""
     for a in p.attributes:
@@ -79,10 +87,7 @@ def _product_to_dto(p: Product, bot_base_url: str) -> dict:
     puffs_raw = _attr_value(p, "затяжк", "puff")
     puffs = int(puffs_raw) if puffs_raw and str(puffs_raw).isdigit() else None
 
-    brand = _attr_value(p, "производитель", "бренд", "brand")
-    # Автопарсинг: первое слово названия — бренд (если атрибут не заполнен)
-    if not brand and p.name:
-        brand = p.name.split()[0]
+    brand = _get_brand(p)
 
     # Используем CDN-ссылку на миниатюру (из expand=images, без авторизации)
     # Fallback: прокси через Railway (если CDN недоступен или товар загружен без expand)
@@ -154,7 +159,8 @@ async def api_products(request: web.Request) -> web.Response:
 
     brand_filter = request.rel_url.query.get("brand", "")
     if brand_filter:
-        products = [p for p in products if p.brand == brand_filter]
+        brand_lower = brand_filter.lower()
+        products = [p for p in products if (_get_brand(p) or "").lower() == brand_lower]
     if in_stock:
         products = [p for p in products if p.in_stock]
 
@@ -205,18 +211,13 @@ async def api_brands(request: web.Request) -> web.Response:
     seen: set[str] = set()
     brands = []
     for p in products:
-        # Бренд берём так же как в _product_to_dto: атрибут → первое слово названия
-        brand = _attr_value(p, "производитель", "бренд", "brand")
-        if not brand and p.name:
-            brand = p.name.split()[0]
+        brand = _get_brand(p)
         if not brand:
             continue
-        brand_str = str(brand)
-        # Нормализуем регистр: "PLONQ" и "Plonq" → одна карточка
-        key = brand_str.lower()
+        key = brand.lower()
         if key not in seen:
             seen.add(key)
-            brands.append({"name": brand_str})
+            brands.append({"name": brand})
     brands.sort(key=lambda b: b["name"].lower())
     return json_ok(brands, request)
 
