@@ -71,8 +71,13 @@ def _product_to_dto(p: Product, bot_base_url: str) -> dict:
 
     brand = _attr_value(p, "производитель", "бренд", "brand")
 
+    # Варианты не имеют собственных фото — берём фото родительского товара
+    img_entity = "product"
+    img_id = p.parent_product_id if p.entity_type == "variant" and p.parent_product_id else p.id
+    if p.entity_type != "variant":
+        img_entity = p.entity_type
     image_url = (
-        f"{bot_base_url}/v1/images/{p.entity_type}/{p.id}/0"
+        f"{bot_base_url}/v1/images/{img_entity}/{img_id}/0"
         if bot_base_url else None
     )
 
@@ -143,15 +148,16 @@ async def api_product(request: web.Request) -> web.Response:
     bot_base = request.app.get("bot_base_url", "")
     product_id = request.match_info["id"]
 
-    # Пробуем найти в кэше через поиск
+    from moysklad.client import _parse_product
+    # Пробуем как обычный товар, затем как вариант
     raw = await client._get(f"/entity/product/{product_id}")
+    if not raw:
+        raw = await client._get(f"/entity/variant/{product_id}")
     if not raw:
         raise web.HTTPNotFound()
 
-    from moysklad.client import _parse_product
     p = _parse_product(raw)
-    # Подгружаем остаток
-    stock_map = await client._enrich_stock_bulk([p], p.href.rsplit("/", 1)[0] + "/")
+    await client._enrich_stock_bulk([p], p.href.rsplit("/", 1)[0] + "/")
     return json_ok(_product_to_dto(p, bot_base), request)
 
 
@@ -178,11 +184,16 @@ async def api_stock(request: web.Request) -> web.Response:
     if not product_id:
         return json_ok([], request)
 
-    product_href = f"{BASE_URL}/entity/product/{product_id}"
     stores = await client.get_stores()
     store_ids = {s.name: s.id for s in stores}
 
+    # Пробуем как обычный товар; если пусто — пробуем как вариант
+    product_href = f"{BASE_URL}/entity/product/{product_id}"
     stock_map = await client.get_stock_by_store(product_href)
+    if not stock_map:
+        variant_href = f"{BASE_URL}/entity/variant/{product_id}"
+        stock_map = await client.get_stock_by_store(variant_href)
+
     result = [
         {"shopId": store_ids.get(name, name), "quantity": int(qty)}
         for name, qty in stock_map.items()
