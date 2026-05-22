@@ -388,13 +388,22 @@ def _parse_product(row: dict) -> Product:
     folder_href = row.get("productFolder", {}).get("meta", {}).get("href", "")
     category_id = folder_href.rstrip("/").split("/")[-1] if folder_href else None
 
-    # Если изображения были запрошены через expand=images — берём CDN-ссылку на миниатюру
+    # Извлекаем CDN-ссылку на изображение из expand=images
     image_url: str | None = None
     images_field = row.get("images", {})
-    if isinstance(images_field, dict):
+    img_rows: list = []
+    if isinstance(images_field, list):
+        img_rows = images_field  # МойСклад иногда возвращает список напрямую
+    elif isinstance(images_field, dict):
         img_rows = images_field.get("rows", [])
-        if img_rows:
-            image_url = img_rows[0].get("miniature", {}).get("downloadHref")
+    if img_rows:
+        img = img_rows[0]
+        # Приоритет: miniature CDN → permanent CDN → обычный downloadHref
+        image_url = (
+            img.get("miniature", {}).get("downloadHref")
+            or img.get("meta", {}).get("downloadPermanentHref")
+            or img.get("meta", {}).get("downloadHref")
+        )
 
     return Product(
         id=row.get("id", ""),

@@ -33,6 +33,17 @@ def cors_headers(request: web.Request) -> dict:
     return {}
 
 
+def get_base_url(request: web.Request) -> str:
+    """Возвращает bot_base_url из настроек или определяет автоматически из запроса."""
+    configured = request.app.get("bot_base_url", "")
+    if configured:
+        return configured
+    # Автоопределение: берём схему и хост из заголовков (Railway / Vercel proxy)
+    host = request.headers.get("X-Forwarded-Host") or request.headers.get("Host") or request.url.host
+    scheme = request.headers.get("X-Forwarded-Proto") or request.url.scheme
+    return f"{scheme}://{host}"
+
+
 def json_ok(data, request: web.Request) -> web.Response:
     return web.Response(
         text=json.dumps(data, ensure_ascii=False),
@@ -138,7 +149,7 @@ async def api_categories(request: web.Request) -> web.Response:
 
 async def api_products(request: web.Request) -> web.Response:
     client: MoySkladClient = request.app["ms_client"]
-    bot_base = request.app.get("bot_base_url", "")
+    bot_base = get_base_url(request)
     category_id = request.rel_url.query.get("categoryId", "")
     search = request.rel_url.query.get("search", "")
     in_stock = request.rel_url.query.get("inStock", "") == "true"
@@ -172,7 +183,7 @@ async def api_products(request: web.Request) -> web.Response:
 
 async def api_product(request: web.Request) -> web.Response:
     client: MoySkladClient = request.app["ms_client"]
-    bot_base = request.app.get("bot_base_url", "")
+    bot_base = get_base_url(request)
     product_id = request.match_info["id"]
 
     from moysklad.client import _parse_product
