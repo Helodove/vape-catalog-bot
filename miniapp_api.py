@@ -205,9 +205,18 @@ async def api_brands(request: web.Request) -> web.Response:
     seen: set[str] = set()
     brands = []
     for p in products:
-        if p.brand and p.brand not in seen:
-            seen.add(p.brand)
-            brands.append({"name": p.brand})
+        # Бренд берём так же как в _product_to_dto: атрибут → первое слово названия
+        brand = _attr_value(p, "производитель", "бренд", "brand")
+        if not brand and p.name:
+            brand = p.name.split()[0]
+        if not brand:
+            continue
+        brand_str = str(brand)
+        # Нормализуем регистр: "PLONQ" и "Plonq" → одна карточка
+        key = brand_str.lower()
+        if key not in seen:
+            seen.add(key)
+            brands.append({"name": brand_str})
     brands.sort(key=lambda b: b["name"].lower())
     return json_ok(brands, request)
 
