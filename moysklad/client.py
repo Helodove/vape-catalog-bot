@@ -82,8 +82,13 @@ class MoySkladClient:
         if cached is not None:
             return cached
 
+        # Включаем подпапки (один уровень) — товары типа Vaporesso могут лежать в подпапке
+        subfolders = await self.get_subfolders(folder_href)
+        all_hrefs = [folder_href] + [sf.href for sf in subfolders]
+        folder_filter = ";".join(f"productFolder={h}" for h in all_hrefs)
+
         data = await self._get("/entity/assortment", {
-            "filter": f"productFolder={folder_href}",
+            "filter": folder_filter,
             "limit": 200,
             "expand": "images",
         })
@@ -92,7 +97,7 @@ class MoySkladClient:
 
         rows = [r for r in data.get("rows", []) if r.get("meta", {}).get("type") in ALLOWED_TYPES]
         products = [_parse_product(r) for r in rows]
-        products = await self._enrich_stock_bulk(products, folder_href, store_href)
+        products = await self._enrich_stock_bulk(products, folder_href, store_href, folder_filter)
 
         # Агрегируем остатки вариантов → родительский товар
         # Варианты, чей родитель есть в списке, скрываем — их заменяет карточка родителя с выбором цвета
@@ -231,14 +236,16 @@ class MoySkladClient:
         return None
 
     async def _enrich_stock_bulk(
-        self, products: list[Product], folder_href: str, store_href: str | None = None
+        self, products: list[Product], folder_href: str, store_href: str | None = None,
+        folder_filter: str | None = None,
     ) -> list[Product]:
         if not products:
             return products
-        key = f"stock_bulk:{folder_href}:{store_href or 'all'}"
+        effective_filter = folder_filter or f"productFolder={folder_href}"
+        key = f"stock_bulk:{effective_filter}:{store_href or 'all'}"
         stock_map = cache.get(key)
         if stock_map is None:
-            f = f"productFolder={folder_href}"
+            f = effective_filter
             if store_href:
                 f += f";store={store_href}"
             stock_data = await self._get("/report/stock/all", {
