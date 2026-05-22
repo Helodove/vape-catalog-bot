@@ -105,7 +105,7 @@ def _product_to_dto(p: Product, bot_base_url: str) -> dict:
     # 1. Кастомный URL из Supabase (product_images)
     # 2. CDN-ссылка из МойСклад (expand=images → miniature.downloadHref)
     # 3. Прокси через Railway
-    custom_image = image_db.get_cached(p.id)
+    custom_image = image_db.find_image(p.name)
     if custom_image:
         image_url: str | None = custom_image
     elif p.image_url:
@@ -154,6 +154,8 @@ async def api_categories(request: web.Request) -> web.Response:
 
 
 async def api_products(request: web.Request) -> web.Response:
+    # Обновляем кеш картинок (TTL 5 мин, не блокирует ответ)
+    await image_db.load_images(request.app.get("supabase_url", ""), request.app.get("supabase_key", ""))
     client: MoySkladClient = request.app["ms_client"]
     bot_base = get_base_url(request)
     category_id = request.rel_url.query.get("categoryId", "")
@@ -372,11 +374,8 @@ async def api_image(request: web.Request) -> web.Response:
 
 
 async def _warm_image_cache(app: web.Application) -> None:
-    """Прогрев кеша картинок из Supabase при старте."""
-    supabase_url = app.get("supabase_url", "")
-    supabase_key = app.get("supabase_key", "")
-    if supabase_url and supabase_key:
-        await image_db.load_images(supabase_url, supabase_key)
+    """Прогрев кеша картинок из Supabase при старте и на каждый запрос (TTL 5 мин)."""
+    await image_db.load_images(app.get("supabase_url", ""), app.get("supabase_key", ""))
 
 
 def register_miniapp_routes(app: web.Application, ms_token: str, bot_base_url: str,
