@@ -42,7 +42,7 @@ async def load_images(supabase_url: str, supabase_key: str) -> None:
                 _entries = [
                     (row["product_name"].lower(), row["image_url"])
                     for row in rows
-                    if row.get("product_name") and row.get("image_url")
+                    if row.get("product_name") and row.get("image_url")  # пропускаем строки без URL
                 ]
                 _cache_ts = now
                 log.info("Loaded %d custom image rules from Supabase", len(_entries))
