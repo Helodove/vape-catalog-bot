@@ -170,14 +170,16 @@ class MoySkladClient:
         return products
 
     async def search_products(self, query: str) -> list[Product]:
-        data = await self._get("/entity/product", {
+        # Используем assortment чтобы получить и продукты и варианты (для корректного подсчёта остатков)
+        data = await self._get("/entity/assortment", {
             "search": query,
             "limit": 100,
             "expand": "images",
         })
         if data is None:
             return []
-        return [_parse_product(r) for r in data.get("rows", [])]
+        rows = [r for r in data.get("rows", []) if r.get("meta", {}).get("type") in ALLOWED_TYPES]
+        return [_parse_product(r) for r in rows]
 
     async def get_product_variants(self, product_id: str) -> list["Product"]:
         key = f"variants:{product_id}"
