@@ -170,16 +170,14 @@ class MoySkladClient:
         return products
 
     async def search_products(self, query: str) -> list[Product]:
-        # Используем assortment чтобы получить и продукты и варианты (для корректного подсчёта остатков)
-        data = await self._get("/entity/assortment", {
+        data = await self._get("/entity/product", {
             "search": query,
             "limit": 100,
             "expand": "images",
         })
         if data is None:
             return []
-        rows = [r for r in data.get("rows", []) if r.get("meta", {}).get("type") in ALLOWED_TYPES]
-        return [_parse_product(r) for r in rows]
+        return [_parse_product(r) for r in data.get("rows", [])]
 
     async def get_product_variants(self, product_id: str) -> list["Product"]:
         key = f"variants:{product_id}"
@@ -305,17 +303,17 @@ class MoySkladClient:
         return None
 
     async def enrich_stock_for_store(self, products: list["Product"], store_href: str | None = None) -> list["Product"]:
-        """Обогащает остатками — без store_href даёт глобальный остаток (любой магазин)."""
+        """Обогащает остатками. expand=assortment позволяет маппить варианты → родитель."""
         if not products:
             return products
-        key = f"store_stock_map:{store_href or 'global'}"
+        key = f"store_stock_map_v2:{store_href or 'global'}"
         stock_map = cache.get(key)
         if stock_map is None:
-            params: dict = {"quantityMode": "positiveOnly", "limit": 1000}
+            params: dict = {"quantityMode": "positiveOnly", "limit": 1000, "expand": "assortment"}
             if store_href:
                 params["filter"] = f"store={store_href}"
             stock_data = await self._get("/report/stock/all", params)
-            stock_map = _build_stock_map(stock_data) if stock_data else {}
+            stock_map = _build_stock_map_with_parents(stock_data) if stock_data else {}
             cache.set(key, stock_map, TTL_STOCK)
         for p in products:
             p.stock = stock_map.get(p.href, 0.0)
@@ -352,6 +350,24 @@ def _build_stock_map(stock_data: dict) -> dict:
         href = row.get("meta", {}).get("href", "").split("?")[0]
         if href:
             result[href] = row.get("quantity", row.get("stock", 0.0))
+    return result
+
+
+def _build_stock_map_with_parents(stock_data: dict) -> dict:
+    """Строит карту остатков включая родительские товары для вариантов (через expand=assortment)."""
+    result: dict[str, float] = {}
+    for row in stock_data.get("rows", []):
+        href = row.get("meta", {}).get("href", "").split("?")[0]
+        qty = float(row.get("quantity", row.get("stock", 0.0)))
+        if not href or qty <= 0:
+            continue
+        result[href] = result.get(href, 0.0) + qty
+        # Для вариантов: assortment.product → родительский товар
+        assortment = row.get("assortment") or {}
+        parent_meta = (assortment.get("product") or {}).get("meta") or {}
+        parent_href = parent_meta.get("href", "").split("?")[0]
+        if parent_href:
+            result[parent_href] = result.get(parent_href, 0.0) + qty
     return result
 
 
