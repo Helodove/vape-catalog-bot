@@ -302,18 +302,17 @@ class MoySkladClient:
             return meta.get("downloadHref") or meta.get("href")
         return None
 
-    async def enrich_stock_for_store(self, products: list["Product"], store_href: str) -> list["Product"]:
-        """Обогащает остатками для конкретного магазина без folder_href (для поиска)."""
+    async def enrich_stock_for_store(self, products: list["Product"], store_href: str | None = None) -> list["Product"]:
+        """Обогащает остатками — без store_href даёт глобальный остаток (любой магазин)."""
         if not products:
             return products
-        key = f"store_stock_map:{store_href}"
+        key = f"store_stock_map:{store_href or 'global'}"
         stock_map = cache.get(key)
         if stock_map is None:
-            stock_data = await self._get("/report/stock/all", {
-                "filter": f"store={store_href}",
-                "quantityMode": "positiveOnly",
-                "limit": 1000,
-            })
+            params: dict = {"quantityMode": "positiveOnly", "limit": 1000}
+            if store_href:
+                params["filter"] = f"store={store_href}"
+            stock_data = await self._get("/report/stock/all", params)
             stock_map = _build_stock_map(stock_data) if stock_data else {}
             cache.set(key, stock_map, TTL_STOCK)
         for p in products:

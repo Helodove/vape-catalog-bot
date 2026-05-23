@@ -170,8 +170,7 @@ async def api_products(request: web.Request) -> web.Response:
 
     if search:
         products = await client.search_products(search)
-        if store_href:
-            await client.enrich_stock_for_store(products, store_href)
+        await client.enrich_stock_for_store(products)  # глобальный остаток
     elif category_id:
         folder_href = f"{BASE_URL}/entity/productfolder/{category_id}"
         products = await client.get_products(folder_href, store_href)
