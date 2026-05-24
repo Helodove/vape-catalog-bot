@@ -418,7 +418,7 @@ def _parse_folder(row: dict) -> ProductFolder:
 
 def _parse_product(row: dict) -> Product:
     meta = row.get("meta", {})
-    href = meta.get("href", "")
+    href = meta.get("href", "").split("?")[0]  # МойСклад иногда добавляет ?expand=... в meta.href
     entity_type = meta.get("type", "product")  # "product" или "variant"
 
     sale_prices = []
