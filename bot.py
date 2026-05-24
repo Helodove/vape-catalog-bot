@@ -36,6 +36,7 @@ from handlers.search import (
 from handlers.admin import refresh_handler, debug_handler
 from handlers.store import store_list_callback, store_select_callback
 from miniapp_api import register_miniapp_routes
+from staff_bot import StaffBot
 
 logging.basicConfig(
     level=logging.INFO,
@@ -134,6 +135,7 @@ async def run_web_server(ms_client: MoySkladClient) -> None:
         supabase_key=settings.supabase_service_key,
         bot_token=settings.telegram_bot_token,
         admin_chat_id=str(settings.admin_chat_id),
+        staff_bot_token=settings.staff_bot_token,
     )
     runner = web.AppRunner(app)
     await runner.setup()
@@ -201,6 +203,20 @@ async def main() -> None:
         except Conflict:
             log.warning("Conflict on polling start, retrying in 5s (attempt %d/10)", attempt + 1)
             await asyncio.sleep(5)
+
+    # Запускаем бот для сотрудников (если токен задан)
+    if settings.staff_bot_token:
+        staff = StaffBot(
+            token=settings.staff_bot_token,
+            supabase_url=settings.supabase_url,
+            supabase_key=settings.supabase_service_key,
+            ms_client=ms_client,
+        )
+        staff_app = staff.build()
+        await staff_app.initialize()
+        await staff_app.start()
+        await staff_app.updater.start_polling(drop_pending_updates=True)
+        log.info("Staff bot polling started")
 
     await asyncio.Event().wait()
 

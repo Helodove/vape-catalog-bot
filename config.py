@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     miniapp_origin: str = ""        # https://thevaper-miniapp.vercel.app
     supabase_url: str = ""          # https://<project>.supabase.co
     supabase_service_key: str = ""  # service_role ключ
+    staff_bot_token: str = ""       # токен бота для сотрудников (уведомления о заказах)
 
     class Config:
         env_file = ".env"

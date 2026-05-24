@@ -465,6 +465,7 @@ async def api_create_order(request: web.Request) -> web.Response:
         f"💰 Итого: {total:,.0f} ₽".replace(",", " ")
     )
 
+    # Уведомление администратору (главный бот)
     bot_token = request.app.get("bot_token", "")
     admin_chat_id = request.app.get("admin_chat_id", "")
     if bot_token and admin_chat_id:
@@ -475,7 +476,17 @@ async def api_create_order(request: web.Request) -> web.Response:
                     json={"chat_id": admin_chat_id, "text": msg},
                 )
         except Exception as e:
-            log.error("Failed to send order notification: %s", e)
+            log.error("Failed to send admin notification: %s", e)
+
+    # Уведомление сотрудников, подписанных на этот магазин
+    from staff_bot import notify_store_subscribers
+    await notify_store_subscribers(
+        store_id=shop_id,
+        message=msg,
+        supabase_url=request.app.get("supabase_url", ""),
+        supabase_key=request.app.get("supabase_key", ""),
+        staff_bot_token=request.app.get("staff_bot_token", ""),
+    )
 
     log.info("Order %s: customer=%s phone=%s shop=%s total=%.0f items=%d",
              order_id, customer.get("name"), customer.get("phone"), shop_name, total, len(items))
@@ -485,7 +496,8 @@ async def api_create_order(request: web.Request) -> web.Response:
 
 def register_miniapp_routes(app: web.Application, ms_token: str, bot_base_url: str,
                              miniapp_origin: str, supabase_url: str = "", supabase_key: str = "",
-                             bot_token: str = "", admin_chat_id: str = "") -> None:
+                             bot_token: str = "", admin_chat_id: str = "",
+                             staff_bot_token: str = "") -> None:
     """Регистрирует все маршруты API мини-аппа в aiohttp приложении."""
     app["ms_token"] = ms_token
     app["bot_base_url"] = bot_base_url.rstrip("/")
@@ -494,6 +506,7 @@ def register_miniapp_routes(app: web.Application, ms_token: str, bot_base_url: s
     app["supabase_key"] = supabase_key
     app["bot_token"] = bot_token
     app["admin_chat_id"] = admin_chat_id
+    app["staff_bot_token"] = staff_bot_token
     app.on_startup.append(_warm_image_cache)
 
     app.router.add_route("OPTIONS", "/v1/{path_info:.*}", options_handler)
