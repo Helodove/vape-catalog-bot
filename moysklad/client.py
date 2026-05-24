@@ -170,14 +170,26 @@ class MoySkladClient:
         return products
 
     async def search_products(self, query: str) -> list[Product]:
-        data = await self._get("/entity/product", {
-            "search": query,
-            "limit": 100,
-            "expand": "images",
-        })
-        if data is None:
-            return []
-        return [_parse_product(r) for r in data.get("rows", [])]
+        import asyncio as _asyncio
+        # Ищем и в товарах, и в вариантах — параллельно
+        data_p, data_v = await _asyncio.gather(
+            self._get("/entity/product", {"search": query, "limit": 100, "expand": "images"}),
+            self._get("/entity/variant", {"search": query, "limit": 100, "expand": "images"}),
+        )
+        seen: set[str] = set()
+        results: list[Product] = []
+        for data in [data_p, data_v]:
+            for r in (data or {}).get("rows", []):
+                rid = r.get("id")
+                if rid and rid not in seen and r.get("meta", {}).get("type") in ALLOWED_TYPES:
+                    seen.add(rid)
+                    results.append(_parse_product(r))
+        log.info("search '%s': product=%d variant=%d total=%d",
+                 query,
+                 len((data_p or {}).get("rows", [])),
+                 len((data_v or {}).get("rows", [])),
+                 len(results))
+        return results
 
     async def get_product_variants(self, product_id: str) -> list["Product"]:
         key = f"variants:{product_id}"

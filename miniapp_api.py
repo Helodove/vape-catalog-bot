@@ -174,7 +174,7 @@ async def api_products(request: web.Request) -> web.Response:
     if search:
         products = await client.search_products(search)
         if store_href and products:
-            # Параллельные запросы по папкам — быстро и точно (через asyncio.gather)
+            # Параллельные запросы по папкам (берём folder_id из товара или через parent_product_id у вариантов)
             folder_ids = list({p.category_id for p in products if p.category_id})
             if folder_ids:
                 folder_results = await asyncio.gather(*[
@@ -186,8 +186,16 @@ async def api_products(request: web.Request) -> web.Response:
                     for fp in folder_prods:
                         stock_by_id[fp.id] = fp.stock or 0.0
                 for p in products:
-                    p.stock = stock_by_id.get(p.id, 0.0)
+                    # Для варианта: сначала ищем по его ID, потом по parent_product_id
+                    stock = stock_by_id.get(p.id)
+                    if stock is None and p.parent_product_id:
+                        stock = stock_by_id.get(p.parent_product_id)
+                    p.stock = stock or 0.0
+                matched = sum(1 for p in products if (p.stock or 0) > 0)
+                log.info("search '%s' stock: folder_ids=%d, stock_map=%d, matched=%d/%d",
+                         search, len(folder_ids), len(stock_by_id), matched, len(products))
             else:
+                log.info("search '%s': no folder_ids, setting stock=0 for %d products", search, len(products))
                 for p in products:
                     p.stock = 0.0
         else:
