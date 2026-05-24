@@ -173,9 +173,23 @@ async def api_products(request: web.Request) -> web.Response:
         if store_href:
             await client.enrich_stock_for_store(products, store_href)
         else:
-            # Глобальный поиск — магазин не выбран, считаем всё доступным
             for p in products:
                 p.stock = 1.0
+
+        # Агрегируем сток вариантов в родительский товар (как в get_products)
+        by_id = {p.id: p for p in products}
+        parent_ids_with_variants: set[str] = set()
+        for p in products:
+            if p.entity_type == "variant" and p.parent_product_id and p.parent_product_id in by_id:
+                parent_ids_with_variants.add(p.parent_product_id)
+                parent = by_id[p.parent_product_id]
+                parent.stock = (parent.stock or 0.0) + (p.stock or 0.0)
+                if not parent.image_url and p.image_url:
+                    parent.image_url = p.image_url
+        # Убираем варианты если родитель есть в результатах
+        products = [p for p in products if not (
+            p.entity_type == "variant" and p.parent_product_id in parent_ids_with_variants
+        )]
     elif category_id:
         folder_href = f"{BASE_URL}/entity/productfolder/{category_id}"
         products = await client.get_products(folder_href, store_href)
