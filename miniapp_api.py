@@ -429,14 +429,71 @@ async def _warm_image_cache(app: web.Application) -> None:
     await image_db.load_images(app.get("supabase_url", ""), app.get("supabase_key", ""))
 
 
+async def api_create_order(request: web.Request) -> web.Response:
+    try:
+        payload = await request.json()
+    except Exception:
+        raise web.HTTPBadRequest(reason="Invalid JSON")
+
+    customer = payload.get("customer", {})
+    items = payload.get("items", [])
+    shop_id = payload.get("shopId", "")
+    shop_name = payload.get("shopName", shop_id)
+    comment = payload.get("comment", "")
+
+    import time
+    order_id = f"ORD-{int(time.time())}"
+    total = sum(i.get("price", 0) * i.get("quantity", 1) for i in items)
+
+    # Формируем список товаров для уведомления
+    lines = []
+    for i in items:
+        name = i.get("name", i.get("productId", "?"))
+        qty = i.get("quantity", 1)
+        price = i.get("price", 0)
+        lines.append(f"• {name} × {qty} — {price * qty:,.0f} ₽".replace(",", " "))
+
+    items_text = "\n".join(lines) if lines else "—"
+    comment_text = f"\n💬 Комментарий: {comment}" if comment else ""
+
+    msg = (
+        f"📦 Новый заказ #{order_id}\n\n"
+        f"👤 {customer.get('name', '—')}\n"
+        f"📞 {customer.get('phone', '—')}\n\n"
+        f"🏪 {shop_name}{comment_text}\n\n"
+        f"🛒 Состав:\n{items_text}\n\n"
+        f"💰 Итого: {total:,.0f} ₽".replace(",", " ")
+    )
+
+    bot_token = request.app.get("bot_token", "")
+    admin_chat_id = request.app.get("admin_chat_id", "")
+    if bot_token and admin_chat_id:
+        try:
+            async with httpx.AsyncClient(timeout=10) as http:
+                await http.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    json={"chat_id": admin_chat_id, "text": msg},
+                )
+        except Exception as e:
+            log.error("Failed to send order notification: %s", e)
+
+    log.info("Order %s: customer=%s phone=%s shop=%s total=%.0f items=%d",
+             order_id, customer.get("name"), customer.get("phone"), shop_name, total, len(items))
+
+    return json_ok({"orderId": order_id, "total": total, "status": "accepted"}, request)
+
+
 def register_miniapp_routes(app: web.Application, ms_token: str, bot_base_url: str,
-                             miniapp_origin: str, supabase_url: str = "", supabase_key: str = "") -> None:
+                             miniapp_origin: str, supabase_url: str = "", supabase_key: str = "",
+                             bot_token: str = "", admin_chat_id: str = "") -> None:
     """Регистрирует все маршруты API мини-аппа в aiohttp приложении."""
     app["ms_token"] = ms_token
     app["bot_base_url"] = bot_base_url.rstrip("/")
     app["miniapp_origin"] = miniapp_origin
     app["supabase_url"] = supabase_url
     app["supabase_key"] = supabase_key
+    app["bot_token"] = bot_token
+    app["admin_chat_id"] = admin_chat_id
     app.on_startup.append(_warm_image_cache)
 
     app.router.add_route("OPTIONS", "/v1/{path_info:.*}", options_handler)
@@ -448,3 +505,4 @@ def register_miniapp_routes(app: web.Application, ms_token: str, bot_base_url: s
     app.router.add_get("/v1/shops", api_shops)
     app.router.add_get("/v1/stock", api_stock)
     app.router.add_get("/v1/images/{entity_type}/{entity_id}/{idx}", api_image)
+    app.router.add_post("/v1/orders", api_create_order)

@@ -132,6 +132,8 @@ async def run_web_server(ms_client: MoySkladClient) -> None:
         miniapp_origin=settings.miniapp_origin,
         supabase_url=settings.supabase_url,
         supabase_key=settings.supabase_service_key,
+        bot_token=settings.telegram_bot_token,
+        admin_chat_id=str(settings.admin_chat_id),
     )
     runner = web.AppRunner(app)
     await runner.setup()
