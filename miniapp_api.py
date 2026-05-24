@@ -173,17 +173,8 @@ async def api_products(request: web.Request) -> web.Response:
     if search:
         products = await client.search_products(search)
         if store_href:
-            # Используем get_products по папкам — он уже умеет агрегировать
-            # варианты и корректно считает сток. Результаты кешируются.
-            folder_ids = {p.category_id for p in products if p.category_id}
-            stock_by_id: dict[str, float] = {}
-            for folder_id in folder_ids:
-                folder_href_s = f"{BASE_URL}/entity/productfolder/{folder_id}"
-                folder_prods = await client.get_products(folder_href_s, store_href)
-                for fp in folder_prods:
-                    stock_by_id[fp.id] = fp.stock or 0.0
-            for p in products:
-                p.stock = stock_by_id.get(p.id, 0.0)
+            # Один запрос /report/stock/all с фильтром по складу (кешируется).
+            await client.enrich_stock_for_store(products, store_href)
         else:
             for p in products:
                 p.stock = 1.0
