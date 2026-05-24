@@ -173,8 +173,28 @@ async def api_products(request: web.Request) -> web.Response:
 
     if search:
         products = await client.search_products(search)
-        if store_href:
-            await client.enrich_stock_for_store(products, store_href)
+        if store_href and products:
+            # Группируем по папке и обогащаем стоком точно так же, как CategoryPage
+            from collections import defaultdict
+            folder_groups: dict[str, list] = defaultdict(list)
+            for p in products:
+                folder_groups[p.category_id or ""].append(p)
+
+            enrich_tasks = [
+                client._enrich_stock_bulk(
+                    group,
+                    f"{BASE_URL}/entity/productfolder/{cat_id}",
+                    store_href,
+                )
+                for cat_id, group in folder_groups.items()
+                if cat_id
+            ]
+            if enrich_tasks:
+                await asyncio.gather(*enrich_tasks)
+
+            matched = sum(1 for p in products if p.in_stock)
+            log.info("search '%s' stock: folders=%d matched=%d/%d",
+                     search, len(folder_groups), matched, len(products))
         else:
             for p in products:
                 p.stock = 1.0
