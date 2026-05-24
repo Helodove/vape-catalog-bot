@@ -295,6 +295,28 @@ async def api_brands(request: web.Request) -> web.Response:
     return json_ok(result, request)
 
 
+_SHOP_HOURS: dict[str, str] = {
+    "катукова":         "10:00–21:00",
+    "8 марта":          "11:00–22:00",
+    "плеханова":        "11:00–22:00",
+    "космонавтов":      "11:00–22:00",
+    "зои космодемьянской": "10:00–22:00",
+    "газина":           "09:00–21:00",
+    "хренникова":       "10:00–22:00",
+    "виктора музыки":   "10:00–22:00",
+    "куколкина":        "10:00–22:00",
+    "комиссаржевской":  "10:00–22:00",
+}
+
+
+def _get_shop_hours(address: str) -> str:
+    addr_lower = address.lower()
+    for key, hours in _SHOP_HOURS.items():
+        if key in addr_lower:
+            return hours
+    return "10:00–22:00"
+
+
 async def api_shops(request: web.Request) -> web.Response:
     client: MoySkladClient = request.app["ms_client"]
     stores = await client.get_stores()
@@ -305,7 +327,7 @@ async def api_shops(request: web.Request) -> web.Response:
             "id": s.id,
             "city": city,
             "address": address,
-            "hours": "10:00–22:00",
+            "hours": _get_shop_hours(address),
             "schedule": "Ежедневно",
             "cover": None,
         })
