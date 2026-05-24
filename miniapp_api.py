@@ -191,9 +191,11 @@ async def api_products(request: web.Request) -> web.Response:
                 for p in products:
                     p.stock = stock_map.get(p.href, 0.0)
             matched = sum(1 for p in products if p.in_stock)
-            log.info("search '%s' stock: folders=%d stock_map=%d matched=%d/%d",
+            sample_p = [p.href for p in products[:3]]
+            sample_s = list(stock_map.keys())[:3] if folder_ids else []
+            log.info("search '%s' stock: folders=%d stock_map=%d matched=%d/%d | p.href=%s | stock_key=%s",
                      search, len(folder_ids), len(stock_map) if folder_ids else 0,
-                     matched, len(products))
+                     matched, len(products), sample_p, sample_s)
         else:
             for p in products:
                 p.stock = 1.0
