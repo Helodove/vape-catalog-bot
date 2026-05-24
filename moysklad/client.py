@@ -171,24 +171,30 @@ class MoySkladClient:
 
     async def search_products(self, query: str) -> list[Product]:
         import asyncio as _asyncio
-        data_p, data_v = await _asyncio.gather(
+        # 1. По имени товара/варианта  2. По пути папки (OGGO → все товары внутри)
+        data_p, data_v, data_f = await _asyncio.gather(
             self._get("/entity/product", {"search": query, "limit": 100, "expand": "images"}),
             self._get("/entity/variant", {"search": query, "limit": 100, "expand": "images"}),
+            self._get("/entity/assortment", {
+                "filter": f"pathName~={query}",
+                "limit": 200,
+                "expand": "images",
+            }),
         )
         seen: set[str] = set()
         results: list[Product] = []
-        for data in [data_p, data_v]:
+        for data in [data_p, data_v, data_f]:
             for r in (data or {}).get("rows", []):
                 rid = r.get("id")
                 if rid and rid not in seen and r.get("meta", {}).get("type") in ALLOWED_TYPES:
                     seen.add(rid)
                     results.append(_parse_product(r))
-        log.info("search '%s': product=%d variant=%d total=%d first_names=%s",
+        log.info("search '%s': product=%d variant=%d folder=%d total=%d",
                  query,
                  len((data_p or {}).get("rows", [])),
                  len((data_v or {}).get("rows", [])),
-                 len(results),
-                 [p.name for p in results[:5]])
+                 len((data_f or {}).get("rows", [])),
+                 len(results))
         return results
 
     async def get_product_variants(self, product_id: str) -> list["Product"]:
