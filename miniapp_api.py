@@ -6,6 +6,7 @@ REST API для Telegram Mini App TheVaper.
 import re
 import json
 import logging
+import asyncio
 import httpx
 from aiohttp import web
 from moysklad.client import MoySkladClient, BASE_URL
@@ -172,9 +173,23 @@ async def api_products(request: web.Request) -> web.Response:
 
     if search:
         products = await client.search_products(search)
-        if store_href:
-            # Один запрос /report/stock/all с фильтром по складу (кешируется).
-            await client.enrich_stock_for_store(products, store_href)
+        if store_href and products:
+            # Параллельные запросы по папкам — быстро и точно (через asyncio.gather)
+            folder_ids = list({p.category_id for p in products if p.category_id})
+            if folder_ids:
+                folder_results = await asyncio.gather(*[
+                    client.get_products(f"{BASE_URL}/entity/productfolder/{fid}", store_href)
+                    for fid in folder_ids
+                ])
+                stock_by_id: dict[str, float] = {}
+                for folder_prods in folder_results:
+                    for fp in folder_prods:
+                        stock_by_id[fp.id] = fp.stock or 0.0
+                for p in products:
+                    p.stock = stock_by_id.get(p.id, 0.0)
+            else:
+                for p in products:
+                    p.stock = 0.0
         else:
             for p in products:
                 p.stock = 1.0
