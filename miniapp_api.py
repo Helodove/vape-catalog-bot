@@ -9,7 +9,7 @@ import logging
 import asyncio
 import httpx
 from aiohttp import web
-from moysklad.client import MoySkladClient, BASE_URL
+from moysklad.client import MoySkladClient, BASE_URL, _build_stock_map_with_parents
 from moysklad.models import Product
 import image_db
 
@@ -174,27 +174,26 @@ async def api_products(request: web.Request) -> web.Response:
     if search:
         products = await client.search_products(search)
         if store_href and products:
-            # Группируем по папке и обогащаем стоком точно так же, как CategoryPage
-            from collections import defaultdict
-            folder_groups: dict[str, list] = defaultdict(list)
-            for p in products:
-                folder_groups[p.category_id or ""].append(p)
-
-            enrich_tasks = [
-                client._enrich_stock_bulk(
-                    group,
-                    f"{BASE_URL}/entity/productfolder/{cat_id}",
-                    store_href,
+            # Один запрос стока для всех папок + expand=assortment чтобы маппить variant→parent
+            folder_ids = list({p.category_id for p in products if p.category_id})
+            if folder_ids:
+                folder_filter = ";".join(
+                    f"productFolder={BASE_URL}/entity/productfolder/{fid}"
+                    for fid in folder_ids
                 )
-                for cat_id, group in folder_groups.items()
-                if cat_id
-            ]
-            if enrich_tasks:
-                await asyncio.gather(*enrich_tasks)
-
+                stock_data = await client._get("/report/stock/all", {
+                    "filter": f"{folder_filter};store={store_href}",
+                    "quantityMode": "positiveOnly",
+                    "limit": 1000,
+                    "expand": "assortment",
+                })
+                stock_map = _build_stock_map_with_parents(stock_data) if stock_data else {}
+                for p in products:
+                    p.stock = stock_map.get(p.href, 0.0)
             matched = sum(1 for p in products if p.in_stock)
-            log.info("search '%s' stock: folders=%d matched=%d/%d",
-                     search, len(folder_groups), matched, len(products))
+            log.info("search '%s' stock: folders=%d stock_map=%d matched=%d/%d",
+                     search, len(folder_ids), len(stock_map) if folder_ids else 0,
+                     matched, len(products))
         else:
             for p in products:
                 p.stock = 1.0
