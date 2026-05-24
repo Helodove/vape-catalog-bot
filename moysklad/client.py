@@ -171,24 +171,67 @@ class MoySkladClient:
 
     async def search_products(self, query: str) -> list[Product]:
         import asyncio as _asyncio
+
         # Ищем и в товарах, и в вариантах — параллельно
         data_p, data_v = await _asyncio.gather(
             self._get("/entity/product", {"search": query, "limit": 100, "expand": "images"}),
             self._get("/entity/variant", {"search": query, "limit": 100, "expand": "images"}),
         )
+        product_rows = (data_p or {}).get("rows", [])
+        variant_rows = (data_v or {}).get("rows", [])
+
         seen: set[str] = set()
         results: list[Product] = []
-        for data in [data_p, data_v]:
-            for r in (data or {}).get("rows", []):
-                rid = r.get("id")
-                if rid and rid not in seen and r.get("meta", {}).get("type") in ALLOWED_TYPES:
-                    seen.add(rid)
-                    results.append(_parse_product(r))
-        log.info("search '%s': product=%d variant=%d total=%d",
-                 query,
-                 len((data_p or {}).get("rows", [])),
-                 len((data_v or {}).get("rows", [])),
-                 len(results))
+        covered_parent_ids: set[str] = set()
+
+        # Добавляем варианты, найденные напрямую (например "oggo asia" → 21 вариант)
+        for r in variant_rows:
+            rid = r.get("id")
+            if rid and rid not in seen and r.get("meta", {}).get("type") == "variant":
+                seen.add(rid)
+                p = _parse_product(r)
+                results.append(p)
+                if p.parent_product_id:
+                    covered_parent_ids.add(p.parent_product_id)
+
+        # Для найденных родительских товаров без вариантов в results — раскрываем вручную
+        parents_to_expand: list[dict] = []
+        for r in product_rows:
+            rid = r.get("id")
+            if not rid or rid in seen:
+                continue
+            seen.add(rid)
+            if rid in covered_parent_ids:
+                continue  # уже покрыт вариантами выше
+            parents_to_expand.append(r)
+
+        if parents_to_expand:
+            # Параллельно запрашиваем варианты каждого родителя
+            fetch_tasks = [
+                self._get("/entity/variant", {
+                    "filter": f"product={r['meta']['href']}",
+                    "limit": 100,
+                    "expand": "images",
+                })
+                for r in parents_to_expand
+            ]
+            expanded = await _asyncio.gather(*fetch_tasks)
+
+            for r_parent, var_data in zip(parents_to_expand, expanded):
+                var_rows = (var_data or {}).get("rows", [])
+                if var_rows:
+                    for vr in var_rows:
+                        vid = vr.get("id")
+                        if vid and vid not in seen and vr.get("meta", {}).get("type") == "variant":
+                            seen.add(vid)
+                            results.append(_parse_product(vr))
+                else:
+                    # Товар без вариантов — показываем сам
+                    results.append(_parse_product(r_parent))
+
+        log.info("search '%s': product=%d variant=%d expanded_parents=%d total=%d",
+                 query, len(product_rows), len(variant_rows),
+                 len(parents_to_expand), len(results))
         return results
 
     async def get_product_variants(self, product_id: str) -> list["Product"]:
