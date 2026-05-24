@@ -84,10 +84,12 @@ def _extract_color(p: Product) -> str:
 
 
 def _parse_store(name: str) -> tuple[str, str]:
-    """"г Липецк ул Космонавтов, 100" → ("Липецк", "ул Космонавтов, 100")"""
+    """"г Липецк ул Космонавтов, 100" → ("Липецк", "Космонавтов, 100")"""
     m = re.match(r'^г\s+(\S+)\s+(.+)$', name.strip())
     if m:
-        return m.group(1), m.group(2)
+        city = m.group(1)
+        address = re.sub(r'^(ул|пр|пл|пер|бул|наб|ш|пр-т)\s+', '', m.group(2), flags=re.IGNORECASE)
+        return city, address
     return name, name
 
 
