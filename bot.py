@@ -2,6 +2,8 @@ import asyncio
 import os
 import logging
 import traceback
+from datetime import datetime, timezone
+import httpx
 from aiohttp import web
 from telegram import Update
 from telegram.error import BadRequest, Conflict
@@ -63,6 +65,57 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         pass
 
 
+async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Новый пост в канале → обновляем баннер в мини-апп через Supabase."""
+    post = update.channel_post or update.edited_channel_post
+    if not post:
+        return
+
+    text = post.text or post.caption or ""
+    photo_file_path: str | None = None
+
+    if post.photo:
+        largest = max(post.photo, key=lambda p: p.file_size or 0)
+        try:
+            file = await context.bot.get_file(largest.file_id)
+            photo_file_path = file.file_path
+        except Exception as e:
+            log.warning("Channel post: failed to get photo path: %s", e)
+
+    channel_id = str(post.chat.id)  # например -1001234567890
+    channel_short = str(abs(int(channel_id)))[3:]  # убираем -100
+    post_url = f"https://t.me/c/{channel_short}/{post.message_id}"
+
+    if not settings.supabase_url or not settings.supabase_service_key:
+        log.warning("Supabase не настроен, баннер не обновлён")
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.patch(
+                f"{settings.supabase_url}/rest/v1/latest_post?id=eq.1",
+                headers={
+                    "apikey": settings.supabase_service_key,
+                    "Authorization": f"Bearer {settings.supabase_service_key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json={
+                    "text": text,
+                    "photo_file_path": photo_file_path,
+                    "date": int(post.date.timestamp()) if post.date else None,
+                    "post_url": post_url,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        if r.status_code in (200, 204):
+            log.info("Баннер обновлён: пост %d из канала", post.message_id)
+        else:
+            log.error("Supabase PATCH ошибка: %d %s", r.status_code, r.text[:200])
+    except Exception as e:
+        log.error("Ошибка обновления Supabase: %s", e)
+
+
 async def health_check(request: web.Request) -> web.Response:
     return web.Response(text="OK")
 
@@ -120,6 +173,7 @@ def build_app():
     app.add_handler(CallbackQueryHandler(product_callback, pattern="^product:"))
     app.add_handler(CallbackQueryHandler(sproduct_callback, pattern="^sproduct:"))
     app.add_handler(CallbackQueryHandler(slist_callback, pattern="^slist:"))
+    app.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_post))
     app.add_error_handler(error_handler)
     return app
 
@@ -136,7 +190,10 @@ async def main() -> None:
     # Повтор при конфликте (два экземпляра во время деплоя)
     for attempt in range(10):
         try:
-            await tg_app.updater.start_polling(drop_pending_updates=True)
+            await tg_app.updater.start_polling(
+                drop_pending_updates=True,
+                allowed_updates=Update.ALL_TYPES,
+            )
             log.info("Bot polling started")
             break
         except Conflict:
