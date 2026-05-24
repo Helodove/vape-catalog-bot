@@ -170,21 +170,25 @@ class MoySkladClient:
         return products
 
     async def search_products(self, query: str) -> list[Product]:
-        # assortment возвращает и товары, и варианты за один запрос без rate-limit взрыва
-        data = await self._get("/entity/assortment", {
-            "search": query,
-            "limit": 200,
-            "expand": "images",
-        })
-        rows = (data or {}).get("rows", [])
+        import asyncio as _asyncio
+        data_p, data_v = await _asyncio.gather(
+            self._get("/entity/product", {"search": query, "limit": 100, "expand": "images"}),
+            self._get("/entity/variant", {"search": query, "limit": 100, "expand": "images"}),
+        )
         seen: set[str] = set()
         results: list[Product] = []
-        for r in rows:
-            rid = r.get("id")
-            if rid and rid not in seen and r.get("meta", {}).get("type") in ALLOWED_TYPES:
-                seen.add(rid)
-                results.append(_parse_product(r))
-        log.info("search '%s': assortment=%d total=%d", query, len(rows), len(results))
+        for data in [data_p, data_v]:
+            for r in (data or {}).get("rows", []):
+                rid = r.get("id")
+                if rid and rid not in seen and r.get("meta", {}).get("type") in ALLOWED_TYPES:
+                    seen.add(rid)
+                    results.append(_parse_product(r))
+        log.info("search '%s': product=%d variant=%d total=%d first_names=%s",
+                 query,
+                 len((data_p or {}).get("rows", [])),
+                 len((data_v or {}).get("rows", [])),
+                 len(results),
+                 [p.name for p in results[:5]])
         return results
 
     async def get_product_variants(self, product_id: str) -> list["Product"]:
