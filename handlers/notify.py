@@ -16,6 +16,12 @@ log = logging.getLogger(__name__)
 TYPING_TEXT = 1
 CONFIRMING = 2
 
+_CONFIRM_MARKUP = InlineKeyboardMarkup([[
+    InlineKeyboardButton("✅ Отправить", callback_data="notify_yes"),
+    InlineKeyboardButton("✏️ Изменить", callback_data="notify_edit"),
+    InlineKeyboardButton("❌ Отмена", callback_data="notify_no"),
+]])
+
 
 def _is_admin(update: Update) -> bool:
     return update.effective_user.id == settings.admin_chat_id
@@ -24,10 +30,11 @@ def _is_admin(update: Update) -> bool:
 async def notify_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not _is_admin(update):
         return ConversationHandler.END
-
+    context.user_data.pop("notify_text", None)
+    context.user_data.pop("notify_photo", None)
     await update.message.reply_text(
         "📢 <b>Создание уведомления</b>\n\n"
-        "Введите текст сообщения.\n"
+        "Введите текст сообщения или отправьте фото с подписью.\n"
         "Будет отправлено всем, кто написал /start боту.",
         parse_mode="HTML",
     )
@@ -36,22 +43,42 @@ async def notify_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def notify_got_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["notify_text"] = update.message.text
+    context.user_data.pop("notify_photo", None)
     await update.message.reply_text(
-        f"📋 <b>Предпросмотр:</b>\n\n{update.message.text}\n\n"
-        "Отправить?",
+        f"📋 <b>Предпросмотр:</b>\n\n{update.message.text}\n\nОтправить?",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ Отправить", callback_data="notify_yes"),
-            InlineKeyboardButton("✏️ Изменить", callback_data="notify_edit"),
-            InlineKeyboardButton("❌ Отмена", callback_data="notify_no"),
-        ]]),
+        reply_markup=_CONFIRM_MARKUP,
+    )
+    return CONFIRMING
+
+
+async def notify_got_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    photo = update.message.photo[-1]
+    caption = update.message.caption or ""
+    context.user_data["notify_text"] = caption
+    context.user_data["notify_photo"] = photo.file_id
+    preview_caption = (
+        f"📋 Предпросмотр:\n\n{caption}\n\nОтправить?"
+        if caption else
+        "📋 Предпросмотр:\n(фото без подписи)\n\nОтправить?"
+    )
+    await update.message.reply_photo(
+        photo=photo.file_id,
+        caption=preview_caption,
+        reply_markup=_CONFIRM_MARKUP,
     )
     return CONFIRMING
 
 
 async def notify_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.callback_query.answer()
-    await update.callback_query.edit_message_text("Введите новый текст уведомления:")
+    context.user_data.pop("notify_photo", None)
+    msg = update.callback_query.message
+    prompt = "Введите новый текст или отправьте фото с подписью:"
+    if msg.photo:
+        await msg.edit_caption(prompt)
+    else:
+        await msg.edit_text(prompt)
     return TYPING_TEXT
 
 
@@ -79,6 +106,7 @@ async def notify_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     query = update.callback_query
     await query.answer()
     text = context.user_data.get("notify_text", "")
+    photo_id = context.user_data.get("notify_photo")
 
     markup = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Прочитал (удалить)", callback_data="notify_ack"),
@@ -92,12 +120,20 @@ async def notify_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     sent = 0
     for chat_id in users:
         try:
-            await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+            if photo_id:
+                await context.bot.send_photo(chat_id=chat_id, photo=photo_id, caption=text, reply_markup=markup)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
             sent += 1
         except Exception as e:
             log.warning("Could not send notify to %s: %s", chat_id, e)
 
-    await query.edit_message_text(f"✅ Уведомление отправлено {sent} из {len(users)} подписчиков.")
+    msg = query.message
+    result_text = f"✅ Уведомление отправлено {sent} из {len(users)} подписчиков."
+    if msg.photo:
+        await msg.edit_caption(result_text)
+    else:
+        await msg.edit_text(result_text)
     log.info("Notification sent to %d/%d users by admin", sent, len(users))
     return ConversationHandler.END
 
@@ -105,9 +141,14 @@ async def notify_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 async def notify_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text("Отменено.")
+        msg = update.callback_query.message
+        if msg.photo:
+            await msg.edit_caption("Отменено.")
+        else:
+            await msg.edit_text("Отменено.")
     elif update.message:
         await update.message.reply_text("Отменено.")
+    context.user_data.pop("notify_photo", None)
     return ConversationHandler.END
 
 
@@ -126,6 +167,7 @@ def build_notify_conv() -> ConversationHandler:
         entry_points=[CommandHandler("notify", notify_start)],
         states={
             TYPING_TEXT: [
+                MessageHandler(filters.PHOTO, notify_got_photo),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, notify_got_text),
             ],
             CONFIRMING: [
