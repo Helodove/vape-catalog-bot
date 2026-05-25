@@ -11,30 +11,14 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
-    ConversationHandler,
     MessageHandler,
     filters,
     ContextTypes,
 )
 from config import settings
 from moysklad.client import MoySkladClient
-from handlers.start import start_handler, home_callback
-from handlers.catalog import (
-    catalog_handler,
-    catalog_root_callback,
-    folder_callback,
-    plist_callback,
-)
-from handlers.product import product_callback, sproduct_callback
-from handlers.search import (
-    search_start_command,
-    search_start_callback,
-    search_query_handler,
-    slist_callback,
-    WAITING_QUERY,
-)
-from handlers.admin import refresh_handler, debug_handler
-from handlers.store import store_list_callback, store_select_callback
+from handlers.start import start_handler
+from handlers.notify import build_notify_conv, notify_ack
 from miniapp_api import register_miniapp_routes
 from staff_bot import StaffBot
 
@@ -48,7 +32,8 @@ log = logging.getLogger(__name__)
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     err_str = str(context.error).lower()
     if isinstance(context.error, BadRequest) and any(s in err_str for s in (
-        "not modified", "query is too old", "query id is invalid"
+        "not modified", "query is too old", "query id is invalid",
+        "message to delete not found", "message can't be deleted",
     )):
         return
     if isinstance(context.error, Conflict):
@@ -83,12 +68,11 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         except Exception as e:
             log.warning("Channel post: failed to get photo path: %s", e)
 
-    channel_id = str(post.chat.id)  # например -1001234567890
-    channel_short = str(abs(int(channel_id)))[3:]  # убираем -100
+    channel_id = str(post.chat.id)
+    channel_short = str(abs(int(channel_id)))[3:]
     post_url = f"https://t.me/c/{channel_short}/{post.message_id}"
 
     if not settings.supabase_url or not settings.supabase_service_key:
-        log.warning("Supabase не настроен, баннер не обновлён")
         return
 
     try:
@@ -110,9 +94,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
                 },
             )
         if r.status_code in (200, 204):
-            log.info("Баннер обновлён: пост %d из канала", post.message_id)
-        else:
-            log.error("Supabase PATCH ошибка: %d %s", r.status_code, r.text[:200])
+            log.info("Баннер обновлён: пост %d", post.message_id)
     except Exception as e:
         log.error("Ошибка обновления Supabase: %s", e)
 
@@ -141,42 +123,15 @@ async def run_web_server(ms_client: MoySkladClient) -> None:
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    log.info("Web server started on port %d (health + mini app API)", port)
+    log.info("Web server started on port %d", port)
 
 
 def build_app():
     app = ApplicationBuilder().token(settings.telegram_bot_token).build()
-    app.bot_data["ms_client"] = MoySkladClient(settings.moysklad_token)
-
-    search_conv = ConversationHandler(
-        entry_points=[
-            CommandHandler("search", search_start_command),
-            CallbackQueryHandler(search_start_callback, pattern="^search:start$"),
-        ],
-        states={
-            WAITING_QUERY: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, search_query_handler),
-            ],
-        },
-        fallbacks=[CommandHandler("start", start_handler)],
-        per_message=False,
-    )
 
     app.add_handler(CommandHandler("start", start_handler))
-    app.add_handler(CommandHandler("catalog", catalog_handler))
-    app.add_handler(CommandHandler("refresh", refresh_handler))
-    app.add_handler(CommandHandler("debug", debug_handler))
-    app.add_handler(search_conv)
-
-    app.add_handler(CallbackQueryHandler(home_callback, pattern="^home$"))
-    app.add_handler(CallbackQueryHandler(store_list_callback, pattern="^store:list$"))
-    app.add_handler(CallbackQueryHandler(store_select_callback, pattern="^store_pick:"))
-    app.add_handler(CallbackQueryHandler(catalog_root_callback, pattern="^catalog:root:"))
-    app.add_handler(CallbackQueryHandler(folder_callback, pattern="^folder:"))
-    app.add_handler(CallbackQueryHandler(plist_callback, pattern="^plist:"))
-    app.add_handler(CallbackQueryHandler(product_callback, pattern="^product:"))
-    app.add_handler(CallbackQueryHandler(sproduct_callback, pattern="^sproduct:"))
-    app.add_handler(CallbackQueryHandler(slist_callback, pattern="^slist:"))
+    app.add_handler(build_notify_conv())
+    app.add_handler(CallbackQueryHandler(notify_ack, pattern="^notify_ack$"))
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_post))
     app.add_error_handler(error_handler)
     return app
@@ -187,11 +142,9 @@ async def main() -> None:
     await run_web_server(ms_client)
 
     tg_app = build_app()
-    tg_app.bot_data["ms_client"] = ms_client
     await tg_app.initialize()
     await tg_app.start()
 
-    # Повтор при конфликте (два экземпляра во время деплоя)
     for attempt in range(10):
         try:
             await tg_app.updater.start_polling(
@@ -204,7 +157,6 @@ async def main() -> None:
             log.warning("Conflict on polling start, retrying in 5s (attempt %d/10)", attempt + 1)
             await asyncio.sleep(5)
 
-    # Запускаем бот для сотрудников (если токен задан)
     if settings.staff_bot_token:
         staff = StaffBot(
             token=settings.staff_bot_token,

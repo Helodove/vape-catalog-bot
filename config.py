@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     supabase_url: str = ""          # https://<project>.supabase.co
     supabase_service_key: str = ""  # service_role ключ
     staff_bot_token: str = ""       # токен бота для сотрудников (уведомления о заказах)
+    notify_chat_id: int = 0         # ID группы/канала для рассылки уведомлений (/notify)
 
     class Config:
         env_file = ".env"
