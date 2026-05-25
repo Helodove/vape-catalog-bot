@@ -103,8 +103,11 @@ async def notify_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 
 async def notify_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text("Отменено.")
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text("Отменено.")
+    elif update.message:
+        await update.message.reply_text("Отменено.")
     return ConversationHandler.END
 
 
@@ -133,6 +136,8 @@ def build_notify_conv() -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", notify_cancel),
+            CommandHandler("notify", notify_start),
         ],
+        allow_reentry=True,
         per_message=False,
     )
