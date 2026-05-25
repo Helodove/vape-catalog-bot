@@ -130,6 +130,7 @@ def _product_to_dto(p: Product, bot_base_url: str) -> dict:
         "price": p.retail_price or 0,
         "images": [image_url] if image_url else [],
         "inStock": p.in_stock,
+        "stockQty": int(p.stock) if p.stock is not None else None,
         "description": p.description,
     }
 
