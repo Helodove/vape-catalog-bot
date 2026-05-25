@@ -465,19 +465,6 @@ async def api_create_order(request: web.Request) -> web.Response:
         f"💰 Итого: {total:,.0f} ₽".replace(",", " ")
     )
 
-    # Уведомление администратору (главный бот)
-    bot_token = request.app.get("bot_token", "")
-    admin_chat_id = request.app.get("admin_chat_id", "")
-    if bot_token and admin_chat_id:
-        try:
-            async with httpx.AsyncClient(timeout=10) as http:
-                await http.post(
-                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                    json={"chat_id": admin_chat_id, "text": msg},
-                )
-        except Exception as e:
-            log.error("Failed to send admin notification: %s", e)
-
     # Уведомление сотрудников, подписанных на этот магазин
     from staff_bot import notify_store_subscribers
     await notify_store_subscribers(
