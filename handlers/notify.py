@@ -1,4 +1,5 @@
 import logging
+import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
@@ -24,11 +25,10 @@ async def notify_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if not _is_admin(update):
         return ConversationHandler.END
 
-    target = settings.notify_chat_id or settings.admin_chat_id
     await update.message.reply_text(
-        f"📢 <b>Создание уведомления</b>\n\n"
-        f"Введите текст сообщения.\n"
-        f"Будет отправлено в чат: <code>{target}</code>",
+        "📢 <b>Создание уведомления</b>\n\n"
+        "Введите текст сообщения.\n"
+        "Будет отправлено всем, кто написал /start боту.",
         parse_mode="HTML",
     )
     return TYPING_TEXT
@@ -55,22 +55,50 @@ async def notify_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return TYPING_TEXT
 
 
+async def _get_all_bot_users() -> list[int]:
+    if not settings.supabase_url or not settings.supabase_service_key:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.get(
+                f"{settings.supabase_url}/rest/v1/bot_users",
+                params={"select": "telegram_id"},
+                headers={
+                    "apikey": settings.supabase_service_key,
+                    "Authorization": f"Bearer {settings.supabase_service_key}",
+                },
+            )
+            if r.status_code == 200:
+                return [row["telegram_id"] for row in r.json()]
+    except Exception as e:
+        log.error("get_all_bot_users error: %s", e)
+    return []
+
+
 async def notify_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     text = context.user_data.get("notify_text", "")
-    target = settings.notify_chat_id or settings.admin_chat_id
 
     markup = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Прочитал (удалить)", callback_data="notify_ack"),
     ]])
-    try:
-        await context.bot.send_message(chat_id=target, text=text, reply_markup=markup)
-        await query.edit_message_text("✅ Уведомление отправлено!")
-        log.info("Notification sent to %s by admin", target)
-    except Exception as e:
-        log.error("Failed to send notification: %s", e)
-        await query.edit_message_text(f"❌ Ошибка отправки: {e}")
+
+    users = await _get_all_bot_users()
+    if not users:
+        await query.edit_message_text("❌ Нет подписчиков. Попросите сотрудников написать /start боту.")
+        return ConversationHandler.END
+
+    sent = 0
+    for chat_id in users:
+        try:
+            await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+            sent += 1
+        except Exception as e:
+            log.warning("Could not send notify to %s: %s", chat_id, e)
+
+    await query.edit_message_text(f"✅ Уведомление отправлено {sent} из {len(users)} подписчиков.")
+    log.info("Notification sent to %d/%d users by admin", sent, len(users))
     return ConversationHandler.END
 
 
