@@ -32,6 +32,9 @@ async def _save_bot_user(user) -> None:
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _save_bot_user(update.effective_user)
+    if not settings.miniapp_origin:
+        await update.message.reply_text("TheVaper — каталог временно недоступен.")
+        return
     markup = InlineKeyboardMarkup([[
         InlineKeyboardButton(
             "🛍 Открыть каталог",
