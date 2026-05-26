@@ -113,10 +113,6 @@ def _product_to_dto(p: Product, bot_base_url: str) -> dict:
         image_url: str | None = custom_image
     elif p.image_url:
         image_url = p.image_url
-    elif bot_base_url:
-        img_entity = "product"
-        img_id = p.parent_product_id if p.entity_type == "variant" and p.parent_product_id else p.id
-        image_url = f"{bot_base_url}/v1/images/{img_entity}/{img_id}/0"
     else:
         image_url = None
 
@@ -225,10 +221,10 @@ async def api_product(request: web.Request) -> web.Response:
     product_id = request.match_info["id"]
 
     from moysklad.client import _parse_product
-    # Пробуем как обычный товар, затем как вариант
-    raw = await client._get(f"/entity/product/{product_id}")
+    # Пробуем как обычный товар, затем как вариант (expand=images даёт CDN-ссылку напрямую)
+    raw = await client._get(f"/entity/product/{product_id}", {"expand": "images"})
     if not raw:
-        raw = await client._get(f"/entity/variant/{product_id}")
+        raw = await client._get(f"/entity/variant/{product_id}", {"expand": "images"})
     if not raw:
         raise web.HTTPNotFound()
 
@@ -372,11 +368,21 @@ async def api_stock(request: web.Request) -> web.Response:
     return json_ok(result, request)
 
 
+_image_url_cache: dict[str, str] = {}  # entity_id → cdn_url
+
+
 async def api_image(request: web.Request) -> web.Response:
     """Прокси изображений МойСклад — токен не попадает во фронт."""
     entity_type = request.match_info["entity_type"]
     entity_id = request.match_info["entity_id"]
     ms_token = request.app["ms_token"]
+
+    if entity_id in _image_url_cache:
+        return web.Response(status=302, headers={
+            "Location": _image_url_cache[entity_id],
+            "Cache-Control": "public, max-age=86400",
+            **cors_headers(request),
+        })
 
     try:
         async with httpx.AsyncClient(timeout=15) as http:
@@ -393,6 +399,7 @@ async def api_image(request: web.Request) -> web.Response:
             # Используем miniature.downloadHref — прямой CDN без авторизации, быстрее
             cdn_url = rows[0].get("miniature", {}).get("downloadHref")
             if cdn_url:
+                _image_url_cache[entity_id] = cdn_url
                 return web.Response(
                     status=302,
                     headers={
