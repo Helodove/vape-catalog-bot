@@ -1,6 +1,7 @@
 import asyncio
 import os
 import logging
+import re
 import traceback
 from datetime import datetime, timezone
 import httpx
@@ -51,22 +52,70 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         pass
 
 
+def _clean_post_text(text: str) -> str:
+    """Первая читаемая строка поста: убирает кастомные эмодзи Telegram и ведущие символы-буллеты."""
+    # Убираем символы из Unicode Private Use Area (кастомные эмодзи Telegram)
+    text = re.sub(r'[-]', '', text)
+    text = re.sub(r'[\U000F0000-\U000FFFFF]', '', text)
+    # Ищем первую непустую строку без ведущих спецсимволов
+    for line in text.splitlines():
+        line = line.strip()
+        line = re.sub(r'^[\s■●•▪▸►→\-\*#🔹🔸▶️]+\s*', '', line).strip()
+        if len(line) > 2:
+            return line
+    return text.strip()[:120]
+
+
+async def _upload_post_photo(file_bytes: bytes, post_id: int) -> str | None:
+    """Загружает фото поста в Supabase Storage, возвращает публичный URL."""
+    if not settings.supabase_url or not settings.supabase_service_key:
+        return None
+    bucket = "post-photos"
+    filename = f"post_{post_id}.jpg"
+    headers = {
+        "apikey": settings.supabase_service_key,
+        "Authorization": f"Bearer {settings.supabase_service_key}",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20) as http:
+            # Создаём бакет (если не существует — ошибка игнорируется)
+            await http.post(
+                f"{settings.supabase_url}/storage/v1/bucket",
+                headers={**headers, "Content-Type": "application/json"},
+                json={"id": bucket, "name": bucket, "public": True},
+            )
+            # Загружаем файл (upsert = перезапись при следующих постах)
+            r = await http.post(
+                f"{settings.supabase_url}/storage/v1/object/{bucket}/{filename}",
+                headers={**headers, "Content-Type": "image/jpeg", "x-upsert": "true"},
+                content=file_bytes,
+            )
+            if r.status_code in (200, 201):
+                return f"{settings.supabase_url}/storage/v1/object/public/{bucket}/{filename}"
+            log.warning("Storage upload status %d: %s", r.status_code, r.text[:200])
+    except Exception as e:
+        log.warning("Channel post: photo upload failed: %s", e)
+    return None
+
+
 async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Новый пост в канале → обновляем баннер в мини-апп через Supabase."""
     post = update.channel_post or update.edited_channel_post
     if not post:
         return
 
-    text = post.text or post.caption or ""
-    photo_file_path: str | None = None
+    raw_text = post.text or post.caption or ""
+    text = _clean_post_text(raw_text)
+    photo_url: str | None = None
 
     if post.photo:
         largest = max(post.photo, key=lambda p: p.file_size or 0)
         try:
-            file = await context.bot.get_file(largest.file_id)
-            photo_file_path = file.file_path
+            tg_file = await context.bot.get_file(largest.file_id)
+            file_bytes = bytes(await tg_file.download_as_bytearray())
+            photo_url = await _upload_post_photo(file_bytes, post.message_id)
         except Exception as e:
-            log.warning("Channel post: failed to get photo path: %s", e)
+            log.warning("Channel post: failed to get photo: %s", e)
 
     channel_id = str(post.chat.id)
     channel_short = str(abs(int(channel_id)))[3:]
@@ -87,14 +136,14 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
                 },
                 json={
                     "text": text,
-                    "photo_file_path": photo_file_path,
+                    "photo_file_path": photo_url,
                     "date": int(post.date.timestamp()) if post.date else None,
                     "post_url": post_url,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
         if r.status_code in (200, 204):
-            log.info("Баннер обновлён: пост %d", post.message_id)
+            log.info("Баннер обновлён: пост %d, фото=%s", post.message_id, "да" if photo_url else "нет")
     except Exception as e:
         log.error("Ошибка обновления Supabase: %s", e)
 
