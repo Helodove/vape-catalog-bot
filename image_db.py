@@ -31,7 +31,7 @@ async def load_images(supabase_url: str, supabase_key: str) -> None:
     try:
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.get(
-                f"{supabase_url}/rest/v1/product_images?select=product_name,image_url&order=id",
+                f"{supabase_url}/rest/v1/product_images?select=product_name,image_url,note&order=id",
                 headers={
                     "apikey": supabase_key,
                     "Authorization": f"Bearer {supabase_key}",
@@ -42,7 +42,7 @@ async def load_images(supabase_url: str, supabase_key: str) -> None:
                 _entries = [
                     (row["product_name"].lower(), row["image_url"])
                     for row in rows
-                    if row.get("product_name") and row.get("image_url")  # пропускаем строки без URL
+                    if row.get("product_name") and row.get("image_url") and row.get("note") != "__deleted__"
                 ]
                 _cache_ts = now
                 log.info("Loaded %d custom image rules from Supabase", len(_entries))
