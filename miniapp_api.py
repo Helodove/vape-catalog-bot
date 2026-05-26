@@ -245,7 +245,7 @@ async def api_product(request: web.Request) -> web.Response:
             # Пересобираем DTO с обновлённым image_url
             dto = _product_to_dto(p, bot_base)
             dto["variants"] = [
-                {"id": v.id, "color": _extract_color(v)}
+                {"id": v.id, "color": _extract_color(v), "image": v.image_url}
                 for v in variants
             ]
 
