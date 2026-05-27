@@ -236,16 +236,13 @@ async def api_product(request: web.Request) -> web.Response:
     if p.entity_type == "product":
         variants = await client.get_product_variants(product_id)
         if variants:
-            # Fallback фото: если у родителя нет — берём у первого варианта с фото
-            if not p.image_url:
-                for v in variants:
-                    if v.image_url:
-                        p.image_url = v.image_url
-                        break
-            # Пересобираем DTO с обновлённым image_url
-            dto = _product_to_dto(p, bot_base)
             dto["variants"] = [
-                {"id": v.id, "color": _extract_color(v), "image": v.image_url}
+                {
+                    "id": v.id,
+                    "color": _extract_color(v),
+                    # Изображение варианта: прокси-эндпоинт умеет брать фото из /entity/variant/{id}/images
+                    "image": f"{bot_base}/v1/images/variant/{v.id}/0",
+                }
                 for v in variants
             ]
 
@@ -377,9 +374,12 @@ async def api_image(request: web.Request) -> web.Response:
     entity_id = request.match_info["entity_id"]
     ms_token = request.app["ms_token"]
 
-    if entity_id in _image_url_cache:
+    cached_url = _image_url_cache.get(entity_id)
+    if cached_url:
+        if cached_url == "__none__":
+            raise web.HTTPNotFound()
         return web.Response(status=302, headers={
-            "Location": _image_url_cache[entity_id],
+            "Location": cached_url,
             "Cache-Control": "public, max-age=86400",
             **cors_headers(request),
         })
@@ -394,6 +394,7 @@ async def api_image(request: web.Request) -> web.Response:
             rows = r.json().get("rows", [])
 
             if not rows:
+                _image_url_cache[entity_id] = "__none__"
                 raise web.HTTPNotFound()
 
             # Используем miniature.downloadHref — прямой CDN без авторизации, быстрее

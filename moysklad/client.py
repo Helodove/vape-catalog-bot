@@ -214,30 +214,25 @@ class MoySkladClient:
         if cached is not None:
             return cached
 
-        # /entity/variant?filter=product=<href>&expand=images
-        # Только этот эндпоинт корректно раскрывает изображения для модификаций.
-        # /entity/assortment с expand=images возвращает images=None для variant-типов.
-        product_href = f"{BASE_URL}/entity/product/{product_id}"
-        data = await self._get("/entity/variant", {
-            "filter": f"product={product_href}",
-            "limit": 100,
-            "expand": "images",
+        # Узнаём папку товара
+        prod_data = await self._get(f"/entity/product/{product_id}")
+        folder_href = (prod_data or {}).get("productFolder", {}).get("meta", {}).get("href")
+        if not folder_href:
+            cache.set(key, [], TTL_PRODUCTS)
+            return []
+
+        data = await self._get("/entity/assortment", {
+            "filter": f"productFolder={folder_href}",
+            "limit": 1000,
         })
         if not data:
             cache.set(key, [], TTL_PRODUCTS)
             return []
 
-        rows = data.get("rows", [])
-        # Временный лог: смотрим что возвращает МойСклад для images у вариантов
-        for r in rows[:2]:
-            imgs = r.get("images", {})
-            img_size = imgs.get("meta", {}).get("size", "?") if isinstance(imgs, dict) else len(imgs)
-            img_rows = imgs.get("rows", []) if isinstance(imgs, dict) else imgs
-            first_url = (img_rows[0].get("miniature", {}).get("downloadHref") if img_rows else None)
-            log.info("variant_debug id=%s name=%s images_size=%s has_rows=%d first_url=%s",
-                     r.get("id", "?"), r.get("name", "?")[:30], img_size, len(img_rows), first_url)
-        variants = [_parse_product(r) for r in rows
-                    if r.get("meta", {}).get("type") == "variant"]
+        all_items = [_parse_product(r) for r in data.get("rows", [])
+                     if r.get("meta", {}).get("type") in ALLOWED_TYPES]
+        variants = [p for p in all_items
+                    if p.entity_type == "variant" and p.parent_product_id == product_id]
         cache.set(key, variants, TTL_PRODUCTS)
         return variants
 
