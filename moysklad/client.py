@@ -214,28 +214,21 @@ class MoySkladClient:
         if cached is not None:
             return cached
 
-        # Узнаём папку товара
-        prod_data = await self._get(f"/entity/product/{product_id}")
-        folder_href = (prod_data or {}).get("productFolder", {}).get("meta", {}).get("href")
-        if not folder_href:
-            cache.set(key, [], TTL_PRODUCTS)
-            return []
-
-        # Варианты ВСЕГДА в той же папке что и родитель — не нужны подпапки
-        # Лимит 1000 чтобы не обрезать при большом кол-ве вариантов в папке
-        data = await self._get("/entity/assortment", {
-            "filter": f"productFolder={folder_href}",
-            "limit": 1000,
+        # /entity/variant?filter=product=<href>&expand=images
+        # Только этот эндпоинт корректно раскрывает изображения для модификаций.
+        # /entity/assortment с expand=images возвращает images=None для variant-типов.
+        product_href = f"{BASE_URL}/entity/product/{product_id}"
+        data = await self._get("/entity/variant", {
+            "filter": f"product={product_href}",
+            "limit": 100,
             "expand": "images",
         })
         if not data:
             cache.set(key, [], TTL_PRODUCTS)
             return []
 
-        all_items = [_parse_product(r) for r in data.get("rows", [])
-                     if r.get("meta", {}).get("type") in ALLOWED_TYPES]
-        variants = [p for p in all_items
-                    if p.entity_type == "variant" and p.parent_product_id == product_id]
+        variants = [_parse_product(r) for r in data.get("rows", [])
+                    if r.get("meta", {}).get("type") == "variant"]
         cache.set(key, variants, TTL_PRODUCTS)
         return variants
 
