@@ -227,7 +227,16 @@ class MoySkladClient:
             cache.set(key, [], TTL_PRODUCTS)
             return []
 
-        variants = [_parse_product(r) for r in data.get("rows", [])
+        rows = data.get("rows", [])
+        # Временный лог: смотрим что возвращает МойСклад для images у вариантов
+        for r in rows[:2]:
+            imgs = r.get("images", {})
+            img_size = imgs.get("meta", {}).get("size", "?") if isinstance(imgs, dict) else len(imgs)
+            img_rows = imgs.get("rows", []) if isinstance(imgs, dict) else imgs
+            first_url = (img_rows[0].get("miniature", {}).get("downloadHref") if img_rows else None)
+            log.info("variant_debug id=%s name=%s images_size=%s has_rows=%d first_url=%s",
+                     r.get("id", "?"), r.get("name", "?")[:30], img_size, len(img_rows), first_url)
+        variants = [_parse_product(r) for r in rows
                     if r.get("meta", {}).get("type") == "variant"]
         cache.set(key, variants, TTL_PRODUCTS)
         return variants
