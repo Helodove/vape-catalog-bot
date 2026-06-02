@@ -1,0 +1,4 @@
+meta:
+  environment: dockerfile
+build:
+  dockerfilePath: Dockerfile
