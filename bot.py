@@ -166,7 +166,7 @@ async def telegram_webhook(request: web.Request) -> web.Response:
     return web.Response(text="OK")
 
 
-async def run_web_server(ms_client: MoySkladClient, tg_app) -> None:
+async def run_web_server(ms_client: MoySkladClient, tg_app) -> web.AppRunner:
     port = int(os.environ.get("PORT", 8080))
     app = web.Application()
     app["ms_client"] = ms_client
@@ -189,6 +189,7 @@ async def run_web_server(ms_client: MoySkladClient, tg_app) -> None:
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     log.info("Web server started on port %d", port)
+    return runner
 
 
 def build_app():
@@ -217,7 +218,8 @@ async def main() -> None:
     tg_app = build_app()
 
     # Start web server first so Amvera health checks pass immediately
-    await run_web_server(ms_client, tg_app)
+    # Keep reference to runner so it's not garbage collected
+    _runner = await run_web_server(ms_client, tg_app)
 
     for attempt in range(1, 6):
         try:
