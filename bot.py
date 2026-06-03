@@ -187,22 +187,23 @@ def build_app():
 
 
 async def _polling_loop(tg_app) -> None:
-    """Запускает polling и перезапускает его при Conflict-ошибке."""
+    """Запускает polling и перезапускает при остановке или Conflict."""
     while True:
         try:
             if tg_app.updater.running:
                 await tg_app.updater.stop()
+            await asyncio.sleep(2)
             await tg_app.updater.start_polling(
                 drop_pending_updates=True,
                 allowed_updates=Update.ALL_TYPES,
             )
             log.info("Bot polling started")
-            await asyncio.Event().wait()
-        except Conflict:
-            log.warning("Conflict: другой экземпляр бота активен, жду 15 сек...")
+            while tg_app.updater.running:
+                await asyncio.sleep(5)
+            log.warning("Polling остановился, перезапуск через 15 сек...")
             await asyncio.sleep(15)
         except Exception as e:
-            log.error("Polling error: %s, перезапуск через 10 сек", e)
+            log.warning("Polling error: %s, retry in 10s", e)
             await asyncio.sleep(10)
 
 
