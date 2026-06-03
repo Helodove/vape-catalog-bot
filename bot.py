@@ -186,6 +186,26 @@ def build_app():
     return app
 
 
+async def _polling_loop(tg_app) -> None:
+    """Запускает polling и перезапускает его при Conflict-ошибке."""
+    while True:
+        try:
+            if tg_app.updater.running:
+                await tg_app.updater.stop()
+            await tg_app.updater.start_polling(
+                drop_pending_updates=True,
+                allowed_updates=Update.ALL_TYPES,
+            )
+            log.info("Bot polling started")
+            await asyncio.Event().wait()
+        except Conflict:
+            log.warning("Conflict: другой экземпляр бота активен, жду 15 сек...")
+            await asyncio.sleep(15)
+        except Exception as e:
+            log.error("Polling error: %s, перезапуск через 10 сек", e)
+            await asyncio.sleep(10)
+
+
 async def main() -> None:
     ms_client = MoySkladClient(settings.moysklad_token)
     await run_web_server(ms_client)
@@ -193,18 +213,6 @@ async def main() -> None:
     tg_app = build_app()
     await tg_app.initialize()
     await tg_app.start()
-
-    for attempt in range(10):
-        try:
-            await tg_app.updater.start_polling(
-                drop_pending_updates=True,
-                allowed_updates=Update.ALL_TYPES,
-            )
-            log.info("Bot polling started")
-            break
-        except Conflict:
-            log.warning("Conflict on polling start, retrying in 5s (attempt %d/10)", attempt + 1)
-            await asyncio.sleep(5)
 
     if settings.staff_bot_token:
         staff = StaffBot(
@@ -219,7 +227,7 @@ async def main() -> None:
         await staff_app.updater.start_polling(drop_pending_updates=True)
         log.info("Staff bot polling started")
 
-    await asyncio.Event().wait()
+    await _polling_loop(tg_app)
 
 
 if __name__ == "__main__":
