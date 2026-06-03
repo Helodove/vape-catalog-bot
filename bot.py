@@ -236,17 +236,28 @@ async def main() -> None:
     log.info("Webhook set: %s", webhook_url)
 
     if settings.staff_bot_token:
-        staff = StaffBot(
-            token=settings.staff_bot_token,
-            supabase_url=settings.supabase_url,
-            supabase_key=settings.supabase_service_key,
-            ms_client=ms_client,
-        )
-        staff_app = staff.build()
-        await staff_app.initialize()
-        await staff_app.start()
-        await staff_app.updater.start_polling(drop_pending_updates=True)
-        log.info("Staff bot polling started")
+        try:
+            staff = StaffBot(
+                token=settings.staff_bot_token,
+                supabase_url=settings.supabase_url,
+                supabase_key=settings.supabase_service_key,
+                ms_client=ms_client,
+            )
+            staff_app = staff.build()
+            for attempt in range(1, 4):
+                try:
+                    await staff_app.initialize()
+                    break
+                except Exception as e:
+                    log.warning("Staff bot init attempt %d/3 failed: %s", attempt, e)
+                    if attempt == 3:
+                        raise
+                    await asyncio.sleep(10 * attempt)
+            await staff_app.start()
+            await staff_app.updater.start_polling(drop_pending_updates=True)
+            log.info("Staff bot polling started")
+        except Exception as e:
+            log.error("Staff bot failed to start, continuing without it: %s", e)
 
     await asyncio.Event().wait()
 
