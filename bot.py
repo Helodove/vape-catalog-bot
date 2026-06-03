@@ -192,7 +192,16 @@ async def run_web_server(ms_client: MoySkladClient, tg_app) -> None:
 
 
 def build_app():
-    app = ApplicationBuilder().token(settings.telegram_bot_token).updater(None).build()
+    app = (
+        ApplicationBuilder()
+        .token(settings.telegram_bot_token)
+        .updater(None)
+        .connect_timeout(30)
+        .read_timeout(30)
+        .write_timeout(30)
+        .pool_timeout(30)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(build_notify_conv())
@@ -206,7 +215,17 @@ async def main() -> None:
     ms_client = MoySkladClient(settings.moysklad_token)
 
     tg_app = build_app()
-    await tg_app.initialize()
+
+    for attempt in range(1, 6):
+        try:
+            await tg_app.initialize()
+            break
+        except Exception as e:
+            log.warning("Telegram init attempt %d/5 failed: %s", attempt, e)
+            if attempt == 5:
+                raise
+            await asyncio.sleep(10 * attempt)
+
     await tg_app.start()
 
     await run_web_server(ms_client, tg_app)
