@@ -216,6 +216,9 @@ async def main() -> None:
 
     tg_app = build_app()
 
+    # Start web server first so Amvera health checks pass immediately
+    await run_web_server(ms_client, tg_app)
+
     for attempt in range(1, 6):
         try:
             await tg_app.initialize()
@@ -227,8 +230,6 @@ async def main() -> None:
             await asyncio.sleep(10 * attempt)
 
     await tg_app.start()
-
-    await run_web_server(ms_client, tg_app)
 
     webhook_url = f"{settings.bot_base_url.rstrip('/')}{WEBHOOK_PATH}"
     await tg_app.bot.set_webhook(url=webhook_url, drop_pending_updates=True, allowed_updates=list(Update.ALL_TYPES))
