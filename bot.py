@@ -148,15 +148,31 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         log.error("Ошибка обновления Supabase: %s", e)
 
 
+WEBHOOK_PATH = "/telegram-webhook"
+
+
 async def health_check(request: web.Request) -> web.Response:
     return web.Response(text="OK")
 
 
-async def run_web_server(ms_client: MoySkladClient) -> None:
+async def telegram_webhook(request: web.Request) -> web.Response:
+    tg_app = request.app["tg_app"]
+    try:
+        data = await request.json()
+        update = Update.de_json(data, tg_app.bot)
+        await tg_app.process_update(update)
+    except Exception as e:
+        log.error("Webhook processing error: %s", e)
+    return web.Response(text="OK")
+
+
+async def run_web_server(ms_client: MoySkladClient, tg_app) -> None:
     port = int(os.environ.get("PORT", 8080))
     app = web.Application()
     app["ms_client"] = ms_client
+    app["tg_app"] = tg_app
     app.router.add_get("/", health_check)
+    app.router.add_post(WEBHOOK_PATH, telegram_webhook)
     register_miniapp_routes(
         app,
         ms_token=settings.moysklad_token,
@@ -176,7 +192,7 @@ async def run_web_server(ms_client: MoySkladClient) -> None:
 
 
 def build_app():
-    app = ApplicationBuilder().token(settings.telegram_bot_token).build()
+    app = ApplicationBuilder().token(settings.telegram_bot_token).updater(None).build()
 
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(build_notify_conv())
@@ -186,34 +202,18 @@ def build_app():
     return app
 
 
-async def _polling_loop(tg_app) -> None:
-    """Запускает polling и перезапускает при остановке или Conflict."""
-    while True:
-        try:
-            if tg_app.updater.running:
-                await tg_app.updater.stop()
-            await asyncio.sleep(2)
-            await tg_app.updater.start_polling(
-                drop_pending_updates=True,
-                allowed_updates=Update.ALL_TYPES,
-            )
-            log.info("Bot polling started")
-            while tg_app.updater.running:
-                await asyncio.sleep(5)
-            log.warning("Polling остановился, перезапуск через 15 сек...")
-            await asyncio.sleep(15)
-        except Exception as e:
-            log.warning("Polling error: %s, retry in 10s", e)
-            await asyncio.sleep(10)
-
-
 async def main() -> None:
     ms_client = MoySkladClient(settings.moysklad_token)
-    await run_web_server(ms_client)
 
     tg_app = build_app()
     await tg_app.initialize()
     await tg_app.start()
+
+    await run_web_server(ms_client, tg_app)
+
+    webhook_url = f"{settings.bot_base_url.rstrip('/')}{WEBHOOK_PATH}"
+    await tg_app.bot.set_webhook(url=webhook_url, drop_pending_updates=True, allowed_updates=list(Update.ALL_TYPES))
+    log.info("Webhook set: %s", webhook_url)
 
     if settings.staff_bot_token:
         staff = StaffBot(
@@ -228,7 +228,7 @@ async def main() -> None:
         await staff_app.updater.start_polling(drop_pending_updates=True)
         log.info("Staff bot polling started")
 
-    await _polling_loop(tg_app)
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
