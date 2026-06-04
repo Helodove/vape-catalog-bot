@@ -14,10 +14,6 @@ ALLOWED_TYPES = {"product", "variant"}
 class MoySkladClient:
     def __init__(self, token: str):
         self._headers = {"Authorization": f"Bearer {token}"}
-        self._http = httpx.AsyncClient(timeout=30, headers=self._headers)
-
-    async def close(self) -> None:
-        await self._http.aclose()
 
     async def _get(self, path: str, params: dict = None) -> Optional[dict]:
         # МойСклад требует filter без URL-кодирования внутренних символов =, : и /
@@ -31,9 +27,10 @@ class MoySkladClient:
                     parts.append(f"{k}={urllib.parse.quote(str(v), safe='')}")
             url += "?" + "&".join(parts)
         try:
-            r = await self._http.get(url)
-            r.raise_for_status()
-            return r.json()
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.get(url, headers=self._headers)
+                r.raise_for_status()
+                return r.json()
         except httpx.HTTPStatusError as e:
             log.error("MoySklad HTTP %d: %s — %s", e.response.status_code, url, e.response.text[:300])
             return None
