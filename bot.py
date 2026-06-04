@@ -6,7 +6,7 @@ import traceback
 from datetime import datetime, timezone
 import httpx
 from aiohttp import web
-from telegram import Update
+from telegram import Update, MenuButtonWebApp, WebAppInfo
 from telegram.error import BadRequest, Conflict
 from telegram.ext import (
     ApplicationBuilder,
@@ -236,6 +236,19 @@ async def main() -> None:
     await tg_app.bot.delete_webhook(drop_pending_updates=True)
     await tg_app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
     log.info("Bot polling started")
+
+    # Кнопка меню рядом с полем ввода — открывает мини-апп
+    if settings.miniapp_origin:
+        try:
+            await tg_app.bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="Каталог",
+                    web_app=WebAppInfo(url=settings.miniapp_origin),
+                )
+            )
+            log.info("Menu button set to Mini App")
+        except Exception as e:
+            log.warning("Could not set menu button: %s", e)
 
     if settings.staff_bot_token:
         try:
