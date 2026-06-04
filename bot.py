@@ -1,5 +1,6 @@
 import asyncio
 import os
+import signal
 import logging
 import re
 import traceback
@@ -274,7 +275,19 @@ async def main() -> None:
         except Exception as e:
             log.error("Staff bot failed to start, continuing without it: %s", e)
 
-    await asyncio.Event().wait()
+    # Ждём сигнала остановки (SIGTERM от Amvera при деплое)
+    stop_event = asyncio.Event()
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop_event.set)
+
+    log.info("Bot ready")
+    await stop_event.wait()
+
+    log.info("Shutting down...")
+    await tg_app.updater.stop()
+    await tg_app.stop()
+    await tg_app.shutdown()
 
 
 if __name__ == "__main__":
