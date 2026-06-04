@@ -106,37 +106,22 @@ class MoySkladClient:
         return folders
 
     async def get_products(self, folder_href: str, store_href: str | None = None) -> list[Product]:
-        import asyncio as _asyncio
         key = f"products:{folder_href}:{store_href or 'all'}"
         cached = cache.get(key)
         if cached is not None:
             return cached
 
-        # Получаем инфо о папке и товары папки параллельно
-        folder_id = folder_href.rstrip("/").split("/")[-1]
-        folder_info, data1 = await _asyncio.gather(
-            self._get(f"/entity/productfolder/{folder_id}"),
-            self._get("/entity/assortment", {
-                "filter": f"productFolder={folder_href}",
-                "limit": 200,
-                "expand": "images",
-            }),
-        )
-        folder_name = (folder_info or {}).get("name", "")
+        # Получаем товары папки
+        data1 = await self._get("/entity/assortment", {
+            "filter": f"productFolder={folder_href}",
+            "limit": 200,
+            "expand": "images",
+        })
 
-        # Запрос 2: товары во всех подпапках через pathName (находит любую глубину вложенности)
-        data2 = None
-        if folder_name:
-            data2 = await self._get("/entity/assortment", {
-                "filter": f"pathName~={folder_name}",
-                "limit": 200,
-                "expand": "images",
-            })
-
-        # Объединяем результаты, убираем дубли по id
+        # Убираем дубли по id
         seen_ids: set[str] = set()
         combined_rows = []
-        for row in list((data1 or {}).get("rows", [])) + list((data2 or {}).get("rows", [])):
+        for row in (data1 or {}).get("rows", []):
             rid = row.get("id")
             if rid and rid not in seen_ids and row.get("meta", {}).get("type") in ALLOWED_TYPES:
                 seen_ids.add(rid)
