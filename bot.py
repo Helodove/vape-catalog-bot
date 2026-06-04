@@ -196,7 +196,6 @@ def build_app():
     app = (
         ApplicationBuilder()
         .token(settings.telegram_bot_token)
-        .updater(None)
         .connect_timeout(30)
         .read_timeout(30)
         .write_timeout(30)
@@ -233,9 +232,10 @@ async def main() -> None:
 
     await tg_app.start()
 
-    webhook_url = f"{settings.bot_base_url.rstrip('/')}{WEBHOOK_PATH}"
-    await tg_app.bot.set_webhook(url=webhook_url, drop_pending_updates=True, allowed_updates=list(Update.ALL_TYPES))
-    log.info("Webhook set: %s", webhook_url)
+    # Polling mode: Amvera blocks incoming Telegram connections (webhook doesn't work)
+    await tg_app.bot.delete_webhook(drop_pending_updates=True)
+    await tg_app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    log.info("Bot polling started")
 
     if settings.staff_bot_token:
         try:
