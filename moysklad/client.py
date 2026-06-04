@@ -147,6 +147,10 @@ class MoySkladClient:
                 if not parent.image_url and p.image_url:
                     parent.image_url = p.image_url
 
+        # Помечаем родителей что у них есть варианты
+        for pid in parent_ids_with_variants:
+            by_id[pid].has_variants = True
+
         # Убираем варианты, у которых родитель присутствует в списке
         products = [p for p in products if not (
             p.entity_type == "variant" and p.parent_product_id in parent_ids_with_variants

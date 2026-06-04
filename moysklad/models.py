@@ -47,6 +47,7 @@ class Product(BaseModel):
     attributes: list[Attribute] = Field(default_factory=list)
     stock: Optional[float] = None
     image_url: Optional[str] = None
+    has_variants: bool = False
 
     model_config = {"populate_by_name": True}
 
