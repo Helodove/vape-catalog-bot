@@ -41,6 +41,10 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     if isinstance(context.error, Conflict):
         log.warning("Telegram Conflict error (duplicate instance), ignoring")
         return
+    from telegram.error import TimedOut as TgTimedOut
+    if isinstance(context.error, TgTimedOut):
+        log.warning("Telegram TimedOut (network blip), ignoring")
+        return
     err = "".join(traceback.format_exception(type(context.error), context.error, context.error.__traceback__))
     log.error("Unhandled exception:\n%s", err)
     try:
@@ -197,10 +201,10 @@ def build_app():
     app = (
         ApplicationBuilder()
         .token(settings.telegram_bot_token)
-        .connect_timeout(30)
-        .read_timeout(30)
-        .write_timeout(30)
-        .pool_timeout(30)
+        .connect_timeout(60)
+        .read_timeout(60)
+        .write_timeout(60)
+        .pool_timeout(60)
         .build()
     )
 

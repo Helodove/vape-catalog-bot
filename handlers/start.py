@@ -31,6 +31,7 @@ async def _save_bot_user(user) -> None:
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    import asyncio as _asyncio
     await _save_bot_user(update.effective_user)
     if not settings.miniapp_origin:
         await update.message.reply_text("TheVaper — каталог временно недоступен.")
@@ -41,7 +42,15 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             web_app=WebAppInfo(url=settings.miniapp_origin),
         )
     ]])
-    await update.message.reply_text(
-        "Добро пожаловать в TheVaper!\n\nНажмите кнопку ниже, чтобы открыть каталог:",
-        reply_markup=markup,
-    )
+    for attempt in range(3):
+        try:
+            await update.message.reply_text(
+                "Добро пожаловать в TheVaper!\n\nНажмите кнопку ниже, чтобы открыть каталог:",
+                reply_markup=markup,
+            )
+            break
+        except Exception:
+            if attempt < 2:
+                await _asyncio.sleep(3)
+            else:
+                raise
