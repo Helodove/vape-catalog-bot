@@ -434,18 +434,34 @@ async def api_image(request: web.Request) -> web.Response:
 
 
 async def _warm_cache(app: web.Application) -> None:
-    """Прогрев кэша при старте: категории, магазины, картинки."""
+    """Прогрев кэша при старте: категории, магазины, картинки, товары."""
+    import asyncio as _asyncio
     await image_db.load_images(app.get("supabase_url", ""), app.get("supabase_key", ""))
     client: MoySkladClient = app["ms_client"]
     try:
-        import asyncio as _asyncio
         folders, stores = await _asyncio.gather(
             client.get_root_folders(),
             client.get_stores(),
         )
         log.info("Cache warmed: %d categories, %d shops", len(folders), len(stores))
+        # Товары грузим в фоне — не блокируем старт сервера
+        _asyncio.ensure_future(_warm_products(client, folders))
     except Exception as e:
         log.warning("Cache warm-up failed (non-critical): %s", e)
+
+
+async def _warm_products(client: MoySkladClient, folders) -> None:
+    """Фоновый прогрев товаров по всем категориям."""
+    import asyncio as _asyncio
+    total = 0
+    for folder in folders:
+        try:
+            products = await client.get_products(folder.href)
+            total += len(products)
+            await _asyncio.sleep(0.3)  # небольшая пауза чтобы не перегружать МойСклад
+        except Exception:
+            pass
+    log.info("Background cache: %d products loaded across all categories", total)
 
 
 async def api_create_order(request: web.Request) -> web.Response:

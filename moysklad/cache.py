@@ -25,7 +25,7 @@ class TTLCache:
 
 TTL_FOLDERS = 3600      # 60 минут
 TTL_PRODUCTS = 3600     # 60 минут
-TTL_STOCK = 900         # 15 минут
+TTL_STOCK = 1800        # 30 минут
 TTL_IMAGES = 86400      # 24 часа
 
 cache = TTLCache()
