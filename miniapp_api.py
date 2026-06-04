@@ -433,9 +433,19 @@ async def api_image(request: web.Request) -> web.Response:
         raise web.HTTPInternalServerError()
 
 
-async def _warm_image_cache(app: web.Application) -> None:
-    """Прогрев кеша картинок из Supabase при старте и на каждый запрос (TTL 5 мин)."""
+async def _warm_cache(app: web.Application) -> None:
+    """Прогрев кэша при старте: категории, магазины, картинки."""
     await image_db.load_images(app.get("supabase_url", ""), app.get("supabase_key", ""))
+    client: MoySkladClient = app["ms_client"]
+    try:
+        import asyncio as _asyncio
+        folders, stores = await _asyncio.gather(
+            client.get_root_folders(),
+            client.get_stores(),
+        )
+        log.info("Cache warmed: %d categories, %d shops", len(folders), len(stores))
+    except Exception as e:
+        log.warning("Cache warm-up failed (non-critical): %s", e)
 
 
 async def api_create_order(request: web.Request) -> web.Response:
@@ -503,7 +513,7 @@ def register_miniapp_routes(app: web.Application, ms_token: str, bot_base_url: s
     app["bot_token"] = bot_token
     app["admin_chat_id"] = admin_chat_id
     app["staff_bot_token"] = staff_bot_token
-    app.on_startup.append(_warm_image_cache)
+    app.on_startup.append(_warm_cache)
 
     app.router.add_route("OPTIONS", "/v1/{path_info:.*}", options_handler)
     app.router.add_get("/v1/categories", api_categories)
