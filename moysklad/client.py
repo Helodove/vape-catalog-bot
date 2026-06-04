@@ -106,22 +106,23 @@ class MoySkladClient:
         return folders
 
     async def get_products(self, folder_href: str, store_href: str | None = None) -> list[Product]:
+        import asyncio as _asyncio
         key = f"products:{folder_href}:{store_href or 'all'}"
         cached = cache.get(key)
         if cached is not None:
             return cached
 
-        # Получаем имя папки чтобы использовать pathName фильтр для подпапок
+        # Получаем инфо о папке и товары папки параллельно
         folder_id = folder_href.rstrip("/").split("/")[-1]
-        folder_info = await self._get(f"/entity/productfolder/{folder_id}")
+        folder_info, data1 = await _asyncio.gather(
+            self._get(f"/entity/productfolder/{folder_id}"),
+            self._get("/entity/assortment", {
+                "filter": f"productFolder={folder_href}",
+                "limit": 200,
+                "expand": "images",
+            }),
+        )
         folder_name = (folder_info or {}).get("name", "")
-
-        # Запрос 1: товары напрямую в этой папке
-        data1 = await self._get("/entity/assortment", {
-            "filter": f"productFolder={folder_href}",
-            "limit": 200,
-            "expand": "images",
-        })
 
         # Запрос 2: товары во всех подпапках через pathName (находит любую глубину вложенности)
         data2 = None

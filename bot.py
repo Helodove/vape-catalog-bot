@@ -1,4 +1,5 @@
 import asyncio
+import gzip
 import os
 import logging
 import re
@@ -166,9 +167,21 @@ async def telegram_webhook(request: web.Request) -> web.Response:
     return web.Response(text="OK")
 
 
+@web.middleware
+async def gzip_middleware(request: web.Request, handler):
+    response = await handler(request)
+    accept = request.headers.get("Accept-Encoding", "")
+    if "gzip" in accept and isinstance(response.body, bytes) and len(response.body) > 512:
+        compressed = gzip.compress(response.body, compresslevel=6)
+        response.body = compressed
+        response.headers["Content-Encoding"] = "gzip"
+        response.headers["Content-Length"] = str(len(compressed))
+    return response
+
+
 async def run_web_server(ms_client: MoySkladClient, tg_app) -> web.AppRunner:
     port = int(os.environ.get("PORT", 80))
-    app = web.Application()
+    app = web.Application(middlewares=[web.middleware(gzip_middleware)])
     app["ms_client"] = ms_client
     app["tg_app"] = tg_app
     app.router.add_get("/", health_check)
