@@ -167,7 +167,7 @@ async def telegram_webhook(request: web.Request) -> web.Response:
 
 
 async def run_web_server(ms_client: MoySkladClient, tg_app) -> web.AppRunner:
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 80))
     app = web.Application()
     app["ms_client"] = ms_client
     app["tg_app"] = tg_app
