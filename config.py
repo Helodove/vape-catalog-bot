@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     supabase_service_key: str = ""  # service_role ключ
     staff_bot_token: str = ""       # токен бота для сотрудников (уведомления о заказах)
     notify_chat_id: int = 0         # ID группы/канала для рассылки уведомлений (/notify)
+    analytics_salt: str = ""        # секрет для user_hash; пусто — аналитика выключена
+    analytics_admin_token: str = "" # токен для GET /v1/analytics/summary
 
     class Config:
         env_file = ".env"

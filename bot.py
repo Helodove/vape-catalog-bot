@@ -22,6 +22,7 @@ from moysklad.client import MoySkladClient
 from handlers.start import start_handler
 from handlers.notify import build_notify_conv, notify_ack
 from miniapp_api import register_miniapp_routes
+from analytics.routes import register_analytics_routes
 from staff_bot import StaffBot
 
 logging.basicConfig(
@@ -188,6 +189,14 @@ async def run_web_server(ms_client: MoySkladClient, tg_app) -> web.AppRunner:
         bot_token=settings.telegram_bot_token,
         admin_chat_id=str(settings.admin_chat_id),
         staff_bot_token=settings.staff_bot_token,
+    )
+    register_analytics_routes(
+        app,
+        bot_token=settings.telegram_bot_token,
+        salt=settings.analytics_salt,
+        admin_token=settings.analytics_admin_token,
+        supabase_url=settings.supabase_url,
+        supabase_key=settings.supabase_service_key,
     )
     runner = web.AppRunner(app)
     await runner.setup()

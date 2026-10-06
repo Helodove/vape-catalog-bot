@@ -12,6 +12,7 @@ from aiohttp import web
 from moysklad.client import MoySkladClient, BASE_URL, _build_stock_map_with_parents
 from moysklad.models import Product
 import image_db
+from analytics.routes import with_reserve_tracking
 
 log = logging.getLogger(__name__)
 
@@ -541,4 +542,4 @@ def register_miniapp_routes(app: web.Application, ms_token: str, bot_base_url: s
     app.router.add_get("/v1/shops", api_shops)
     app.router.add_get("/v1/stock", api_stock)
     app.router.add_get("/v1/images/{entity_type}/{entity_id}/{idx}", api_image)
-    app.router.add_post("/v1/orders", api_create_order)
+    app.router.add_post("/v1/orders", with_reserve_tracking(api_create_order))

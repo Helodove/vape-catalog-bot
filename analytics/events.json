@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "description": "Единый список событий продуктовой аналитики. Копия лежит во фронте (thevaper-miniapp/src/lib/analytics/events.json); синхронность проверяет scripts/check_events_sync.py. Поле с '?' — необязательное.",
+  "events": {
+    "app_open": {
+      "source": ["client"],
+      "fields": [],
+      "meta": { "platform": "string", "start_param": "string?" }
+    },
+    "search": {
+      "source": ["client"],
+      "fields": ["store_id?"],
+      "meta": { "query": "string", "results_count": "int" }
+    },
+    "category_open": {
+      "source": ["client"],
+      "fields": ["store_id?"],
+      "meta": { "category_id": "string" }
+    },
+    "product_view": {
+      "source": ["client"],
+      "fields": ["product_id", "store_id?"],
+      "meta": { "in_stock": "bool", "name": "string?" }
+    },
+    "store_select": {
+      "source": ["client"],
+      "fields": ["store_id"],
+      "meta": {}
+    },
+    "reserve_create": {
+      "source": ["server"],
+      "fields": ["order_id", "store_id"],
+      "meta": { "items_count": "int", "units": "int", "sum": "number", "store_name": "string?" }
+    },
+    "reserve_error": {
+      "source": ["client", "server"],
+      "fields": ["store_id?"],
+      "meta": { "error": "string" }
+    }
+  }
+}
